@@ -226,6 +226,13 @@ def fetch_land_use_for_prefecture(pref: str):
     cfg = PREFECTURES[pref]
     bbox = cfg["bbox"]
 
+    # Skip if already computed
+    from config import get_data_dir
+    existing = get_data_dir(pref) / "land" / "land_use" / "osm_land_use.tif"
+    if existing.exists():
+        log.info("OSM land use already exists for %s, skipping: %s", pref, existing)
+        return
+
     # Split into sub-queries to avoid Overpass timeouts
     sub_bboxes = split_bbox(bbox, n_splits=3)  # 3x3 = 9 sub-queries
     log.info("Fetching OSM land use for %s (%d sub-queries)", pref, len(sub_bboxes))
