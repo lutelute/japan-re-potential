@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>全国 再エネ適地 — レイヤー重ね合わせマップ</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>
+html,body{margin:0;padding:0;height:100%;font-family:-apple-system,'Hiragino Sans',sans-serif}
+#map{width:100%;height:100%}
+#panel{position:absolute;top:10px;left:60px;z-index:1000;background:rgba(255,255,255,0.96);
+  padding:12px 16px;border-radius:10px;box-shadow:0 2px 12px rgba(0,0,0,.4);font-size:12px;
+  max-height:92vh;overflow-y:auto;width:260px}
+#panel h2{margin:0 0 8px;font-size:15px}
+#panel h3{margin:10px 0 4px;font-size:12px;color:#666;border-bottom:1px solid #eee;padding-bottom:2px}
+.layer-row{display:flex;align-items:center;gap:6px;margin:4px 0;padding:3px 4px;border-radius:4px}
+.layer-row:hover{background:#f0f7f0}
+.layer-row input[type=checkbox]{margin:0}
+.layer-row label{flex:1;cursor:pointer;font-size:11px}
+.layer-row input[type=range]{width:60px;height:14px}
+.layer-row .opacity-val{font-size:9px;color:#888;width:28px;text-align:right}
+.color-dot{width:10px;height:10px;border-radius:50%;flex-shrink:0}
+#legend-bar{position:absolute;bottom:10px;left:50%;transform:translateX(-50%);z-index:1000;
+  background:rgba(255,255,255,0.95);padding:8px 20px;border-radius:8px;
+  box-shadow:0 2px 10px rgba(0,0,0,.35);display:flex;gap:16px;font-size:11px;align-items:center}
+#legend-bar .item{display:flex;align-items:center;gap:4px}
+#legend-bar .box{width:16px;height:12px;border-radius:2px}
+.sub-label{font-size:9px;font-weight:bold;border:none;box-shadow:none;background:transparent;
+  text-shadow:1px 1px 1px white,-1px -1px 1px white}
+#loading{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);z-index:2000;
+  background:rgba(0,0,0,.8);color:white;padding:20px 40px;border-radius:10px;font-size:16px;display:none}
+select{font-size:11px;padding:2px 4px;width:100%;border-radius:4px;border:1px solid #ccc}
+</style>
+</head>
+<body>
+<div id="map"></div>
+
+<div id="panel">
+  <h2>全国 RE適地レイヤーマップ</h2>
+  <small style="color:#888">5m解像度 / 47都道府県(60ユニット)</small>
+
+  <h3>スコアレイヤー</h3>
+  <div id="scoreLayers"></div>
+
+  <h3>電力エリア</h3>
+  <select id="areaSelect" onchange="switchArea(this.value)">
+    <option value="all" selected>全国</option>
+    <option value="hokkaido">北海道</option>
+    <option value="tohoku">東北</option>
+    <option value="tokyo">東京</option>
+    <option value="chubu">中部</option>
+    <option value="hokuriku">北陸</option>
+    <option value="kansai">関西</option>
+    <option value="chugoku">中国</option>
+    <option value="shikoku">四国</option>
+    <option value="kyushu">九州</option>
+    <option value="okinawa">沖縄</option>
+  </select>
+
+  <h3>電力系統インフラ</h3>
+  <div class="layer-row">
+    <input type="checkbox" id="chkLines" checked onchange="toggleInfra('lines')">
+    <label for="chkLines">送電線 (66kV+)</label>
+  </div>
+  <div class="layer-row">
+    <input type="checkbox" id="chkSubs" checked onchange="toggleInfra('subs')">
+    <label for="chkSubs">変電所</label>
+  </div>
+  <div class="layer-row">
+    <input type="checkbox" id="chkPlants" onchange="toggleInfra('plants')">
+    <label for="chkPlants">発電所</label>
+  </div>
+
+  <h3>ハザードマップ</h3>
+  <div class="layer-row">
+    <input type="checkbox" id="chkFlood" onchange="toggleHazard('flood')">
+    <label for="chkFlood">洪水浸水想定</label>
+  </div>
+  <div class="layer-row">
+    <input type="checkbox" id="chkSediment" onchange="toggleHazard('sediment')">
+    <label for="chkSediment">土砂災害警戒</label>
+  </div>
+  <div class="layer-row">
+    <input type="checkbox" id="chkTsunami" onchange="toggleHazard('tsunami')">
+    <label for="chkTsunami">津波浸水想定</label>
+  </div>
+</div>
+
+<div id="legend-bar">
+  <b>適地スコア</b>
+  <div class="item"><div class="box" style="background:#006400"></div>80-100</div>
+  <div class="item"><div class="box" style="background:#228B22"></div>60-79</div>
+  <div class="item"><div class="box" style="background:#DAA520"></div>40-59</div>
+  <div class="item"><div class="box" style="background:#FF8C00"></div>20-39</div>
+  <div class="item"><div class="box" style="background:#DC143C"></div>0-19</div>
+  <span style="color:#888;margin-left:8px">|</span>
+  <div class="item"><div style="width:16px;height:3px;background:#ff0000"></div>500kV</div>
+  <div class="item"><div style="width:16px;height:3px;background:#0066ff"></div>154kV</div>
+  <div class="item"><div style="width:16px;height:2px;background:#00aa44"></div>66kV</div>
+</div>
+
+<div id="loading">読み込み中...</div>
+
+<script>
+const map = L.map('map').setView([36.5, 137.0], 6);
+
+// Panes
+map.createPane('score0'); map.getPane('score0').style.zIndex = 300;
+map.createPane('score1'); map.getPane('score1').style.zIndex = 310;
+map.createPane('score2'); map.getPane('score2').style.zIndex = 320;
+map.createPane('score3'); map.getPane('score3').style.zIndex = 330;
+map.createPane('score4'); map.getPane('score4').style.zIndex = 340;
+map.createPane('score5'); map.getPane('score5').style.zIndex = 350;
+map.createPane('score6'); map.getPane('score6').style.zIndex = 360;
+for(let i=0;i<7;i++) map.getPane('score'+i).style.pointerEvents='none';
+map.createPane('hazard'); map.getPane('hazard').style.zIndex=450; map.getPane('hazard').style.pointerEvents='none';
+map.createPane('substations'); map.getPane('substations').style.zIndex=500;
+
+// Basemaps
+const bases = {
+  'CartoDB Light': L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',{attribution:'CartoDB',maxZoom:19}),
+  'CartoDB Dark': L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',{attribution:'CartoDB',maxZoom:19}),
+  'OSM': L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{attribution:'OSM',maxZoom:19}),
+  'Google 衛星': L.tileLayer('https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}',{attribution:'Google',maxZoom:20}),
+  '国土地理院': L.tileLayer('https://cyberjapandata.gsi.go.jp/xyz/std/{z}/{x}/{y}.png',{attribution:'GSI',maxZoom:18}),
+  '航空写真': L.tileLayer('https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/{z}/{x}/{y}.jpg',{attribution:'GSI',maxZoom:18}),
+};
+bases['CartoDB Light'].addTo(map);
+L.control.layers(bases,null,{position:'topright'}).addTo(map);
+
+// Hazard layers
+const hazardLayers={
+  flood:L.tileLayer('https://disaportaldata.gsi.go.jp/raster/01_flood_l2_shinsuishin_data/{z}/{x}/{y}.png',{maxNativeZoom:17,maxZoom:20,opacity:0.5,pane:'hazard'}),
+  sediment:L.tileLayer('https://disaportaldata.gsi.go.jp/raster/05_dosekiryukeikaikuiki/{z}/{x}/{y}.png',{maxNativeZoom:17,maxZoom:20,opacity:0.5,pane:'hazard'}),
+  tsunami:L.tileLayer('https://disaportaldata.gsi.go.jp/raster/04_tsunami_newlegend_data/{z}/{x}/{y}.png',{maxNativeZoom:17,maxZoom:20,opacity:0.5,pane:'hazard'}),
+};
+
+// Score layer definitions
+const SCORE_LAYERS = [
+  {key:'total',    label:'総合スコア',          color:'#006400', defaultOn:true,  opacity:0.7},
+  {key:'slope',    label:'傾斜スコア',          color:'#8B4513', defaultOn:false, opacity:0.6},
+  {key:'grid_dist',label:'送電線距離 (154kV+)', color:'#0066ff', defaultOn:false, opacity:0.6},
+  {key:'dist_line',label:'配電線距離 (66kV)',   color:'#00aa44', defaultOn:false, opacity:0.6},
+  {key:'sub_dist', label:'変電所距離',          color:'#ff6600', defaultOn:false, opacity:0.6},
+  {key:'land_use', label:'土地利用',            color:'#228B22', defaultOn:false, opacity:0.6},
+  {key:'elevation',label:'標高',               color:'#666699', defaultOn:false, opacity:0.6},
+];
+
+// Japan composite bounds
+const JP_BOUNDS = [[24.0, 126.0], [46.0, 146.0]];
+
+// State
+let scoreLayers = {};  // key -> {layer, on, opacity}
+let infraLayers = {lines:[], subs:[], plants:[]};
+let prefData = {};
+
+// Area centers
+const areaCenters={all:[36.5,137,6],hokkaido:[43.3,142.5,7],tohoku:[39.5,140.3,7],tokyo:[36,139.8,8],
+  chubu:[35.5,137.5,7],hokuriku:[36.3,136.8,8],kansai:[34.7,135.5,8],chugoku:[34.6,132.8,8],
+  shikoku:[33.7,133.5,8],kyushu:[32.5,131,7],okinawa:[26.5,127.8,8]};
+
+function vColor(v){if(v>=500)return'#ff0000';if(v>=275)return'#ff6600';if(v>=154)return'#0066ff';if(v>=66)return'#00aa44';return'#999'}
+
+// Build score layer UI
+function buildScoreUI(){
+  const container = document.getElementById('scoreLayers');
+  SCORE_LAYERS.forEach((s, i) => {
+    const row = document.createElement('div');
+    row.className = 'layer-row';
+    row.innerHTML = `
+      <input type="checkbox" id="chkScore_${s.key}" ${s.defaultOn?'checked':''}
+             onchange="toggleScore('${s.key}')">
+      <div class="color-dot" style="background:${s.color}"></div>
+      <label for="chkScore_${s.key}">${s.label}</label>
+      <input type="range" min="0" max="100" value="${s.opacity*100}"
+             oninput="setScoreOpacity('${s.key}',this.value)" title="透過度">
+      <span class="opacity-val" id="opVal_${s.key}">${Math.round(s.opacity*100)}%</span>
+    `;
+    container.appendChild(row);
+  });
+}
+
+// Score layers (composite PNGs)
+function initScoreLayers(){
+  SCORE_LAYERS.forEach((s, i) => {
+    const layer = L.imageOverlay(`japan_${s.key}.png`, JP_BOUNDS, {
+      opacity: s.opacity, pane: 'score'+i
+    });
+    scoreLayers[s.key] = {layer, on: s.defaultOn, opacity: s.opacity};
+    if(s.defaultOn) layer.addTo(map);
+  });
+}
+
+function toggleScore(key){
+  const s = scoreLayers[key];
+  const chk = document.getElementById('chkScore_'+key);
+  s.on = chk.checked;
+  if(s.on) s.layer.addTo(map);
+  else map.removeLayer(s.layer);
+}
+
+function setScoreOpacity(key, val){
+  const s = scoreLayers[key];
+  s.opacity = val/100;
+  s.layer.setOpacity(s.opacity);
+  document.getElementById('opVal_'+key).textContent = val+'%';
+}
+
+// Infrastructure
+async function loadInfra(area){
+  // Clear existing
+  Object.values(infraLayers).flat().forEach(l=>map.removeLayer(l));
+  infraLayers={lines:[],subs:[],plants:[]};
+
+  const areas = area==='all'?
+    ['hokkaido','tohoku','tokyo','chubu','hokuriku','kansai','chugoku','shikoku','kyushu','okinawa']
+    :[area];
+
+  for(const a of areas){
+    // Lines
+    try{
+      const r=await fetch(`grid/${a}_lines.geojson`);
+      const d=await r.json();
+      const ly=L.geoJSON(d,{
+        style:f=>{const v=f.properties.voltage_kv||0;
+          return{color:vColor(v),weight:v>=500?4:v>=275?3:v>=154?2:1.5,opacity:0.65}},
+        onEachFeature:(f,l)=>{
+          const n=f.properties.name||'';const v=f.properties.voltage_kv||0;
+          l.bindPopup(`<b>${n||'不明'}</b><br>${v}kV`,{maxWidth:250});
+          if(n)l.bindTooltip(`${n} (${v}kV)`,{sticky:true});
+        }
+      });
+      if(document.getElementById('chkLines').checked)ly.addTo(map);
+      infraLayers.lines.push(ly);
+    }catch(e){}
+
+    // Substations
+    try{
+      const r=await fetch(`grid/${a}_substations.geojson`);
+      const d=await r.json();
+      const ly=L.layerGroup();
+      d.features.forEach(f=>{
+        const v=f.properties.voltage_kv||0;const n=f.properties.name||'';
+        let lat,lon;const g=f.geometry;
+        if(g.type==='Point'){lon=g.coordinates[0];lat=g.coordinates[1]}
+        else if(g.type==='Polygon'){const c=g.coordinates[0];lat=c.reduce((s,p)=>s+p[1],0)/c.length;lon=c.reduce((s,p)=>s+p[0],0)/c.length}
+        else if(g.type==='MultiPolygon'){const c=g.coordinates[0][0];lat=c.reduce((s,p)=>s+p[1],0)/c.length;lon=c.reduce((s,p)=>s+p[0],0)/c.length}
+        if(!lat||!lon)return;
+        const m=L.circleMarker([lat,lon],{radius:v>=275?7:v>=154?5:4,
+          color:vColor(v),fillColor:vColor(v),fillOpacity:0.7,weight:1.5,pane:'substations'});
+        m.bindPopup(`<b>${n||'不明'}</b><br>${v}kV`);
+        if(n&&v>=154)m.bindTooltip(n,{permanent:true,direction:'right',className:'sub-label'});
+        else if(n)m.bindTooltip(n,{sticky:true});
+        m.addTo(ly);
+      });
+      if(document.getElementById('chkSubs').checked)ly.addTo(map);
+      infraLayers.subs.push(ly);
+    }catch(e){}
+
+    // Plants
+    try{
+      const r=await fetch(`grid/${a}_plants.geojson`);
+      const d=await r.json();
+      const ly=L.geoJSON(d,{
+        pointToLayer:(f,ll)=>{
+          const ft=f.properties.fuel_type||'';
+          const clr=ft.includes('solar')?'#FFD700':ft.includes('wind')?'#00BFFF':
+                    ft.includes('hydro')?'#1E90FF':ft.includes('nuclear')?'#FF4500':'#888';
+          return L.circleMarker(ll,{radius:5,color:clr,fillColor:clr,fillOpacity:0.8,weight:1});
+        },
+        onEachFeature:(f,l)=>{
+          const p=f.properties;
+          l.bindPopup(`<b>${p.name||'不明'}</b><br>種別: ${p.fuel_type||'不明'}<br>容量: ${p.capacity_mw||'?'}MW`);
+        }
+      });
+      if(document.getElementById('chkPlants').checked)ly.addTo(map);
+      infraLayers.plants.push(ly);
+    }catch(e){}
+  }
+}
+
+function toggleInfra(type){
+  const on=document.getElementById('chk'+type.charAt(0).toUpperCase()+type.slice(1)).checked;
+  infraLayers[type].forEach(l=>{if(on)l.addTo(map);else map.removeLayer(l)});
+}
+
+function toggleHazard(type){
+  const chk=document.getElementById('chk'+type.charAt(0).toUpperCase()+type.slice(1));
+  if(chk.checked)hazardLayers[type].addTo(map);else map.removeLayer(hazardLayers[type]);
+}
+
+function switchArea(area){
+  const[lat,lon,z]=areaCenters[area]||areaCenters.all;
+  map.setView([lat,lon],z);
+  loadInfra(area);
+}
+
+function showLoading(v){document.getElementById('loading').style.display=v?'block':'none'}
+
+// Init
+async function init(){
+  showLoading(true);
+  buildScoreUI();
+  initScoreLayers();
+  await loadInfra('all');
+  showLoading(false);
+}
+init();
+</script>
+</body>
+</html>

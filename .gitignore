@@ -1,0 +1,17 @@
+# Data (large, download separately)
+data/
+output/
+logs/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+*.egg-info/
+
+# OS
+.DS_Store
+
+# Generated PNGs in docs_alljapan (large)
+docs_alljapan/*.png
+docs_alljapan/grid/
