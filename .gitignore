@@ -12,6 +12,4 @@ __pycache__/
 # OS
 .DS_Store
 
-# Generated PNGs in docs_alljapan (large)
-docs_alljapan/*.png
-docs_alljapan/grid/
+# docs_alljapan/ is the GitHub Pages root — track all assets

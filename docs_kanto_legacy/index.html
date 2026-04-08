@@ -1,0 +1,712 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>関東 RE適地スコアマップ</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>
+html,body{margin:0;padding:0;height:100%;font-family:-apple-system,'Hiragino Sans',sans-serif}
+#map{width:100%;height:100%}
+#controls{position:absolute;top:10px;left:60px;z-index:1000;background:white;
+  padding:10px 14px;border-radius:8px;box-shadow:0 2px 10px rgba(0,0,0,.35);font-size:12px;
+  max-height:90vh;overflow-y:auto;width:230px}
+#controls h3{margin:8px 0 4px;font-size:13px;border-bottom:1px solid #ddd;padding-bottom:2px}
+#controls select{font-size:12px;padding:3px 6px;width:100%}
+.res-btn{font-size:12px;padding:5px 10px;margin:2px;background:#eee;border:1px solid #ccc;
+  border-radius:4px;cursor:pointer}
+.res-btn.active{background:#006400;color:white;border-color:#006400}
+#controls label{display:block;margin:2px 0;cursor:pointer}
+#controls label input{margin-right:4px}
+#legend{position:absolute;bottom:8px;left:50%;transform:translateX(-50%);z-index:1000;background:rgba(255,255,255,0.93);
+  padding:6px 16px;border-radius:8px;box-shadow:0 2px 10px rgba(0,0,0,.35);font-size:11px;
+  display:flex;gap:18px;align-items:flex-start;white-space:nowrap}
+#legend .block{display:flex;flex-direction:column;gap:1px}
+#legend .block b{margin-bottom:2px;font-size:11px}
+#legend .item{display:flex;align-items:center;gap:4px;margin:1px 0}
+#legend .box{width:14px;height:14px;border-radius:2px;flex-shrink:0}
+#loading{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);z-index:2000;
+  background:rgba(0,0,0,.75);color:white;padding:20px 40px;border-radius:10px;font-size:16px;display:none}
+#sublist{position:absolute;bottom:30px;right:10px;z-index:1000;background:white;
+  padding:8px;border-radius:8px;box-shadow:0 2px 10px rgba(0,0,0,.35);font-size:10px;
+  max-height:50vh;width:210px;overflow:hidden}
+#sublist input{width:100%;box-sizing:border-box;font-size:10px;padding:4px;margin-bottom:4px;border:1px solid #ccc;border-radius:3px}
+#sublist .list{overflow-y:auto;max-height:calc(50vh - 70px)}
+#sublist .entry{cursor:pointer;padding:3px 5px;border-left:3px solid #999;margin:1px 0}
+#sublist .entry:hover{background:#e8f5e8}
+.tab-btns{display:flex;gap:2px;margin-bottom:4px}
+.tab-btns button{flex:1;font-size:10px;padding:3px;border:1px solid #ccc;cursor:pointer;background:#f5f5f5;border-radius:3px}
+.tab-btns button.active{background:#006400;color:white;border-color:#006400}
+.sub-label{font-size:10px;font-weight:bold;border:none;box-shadow:none;background:transparent;
+  text-shadow:1px 1px 1px white,-1px -1px 1px white,1px -1px 1px white,-1px 1px 1px white}
+</style>
+</head>
+<body>
+<div id="map"></div>
+
+<div id="controls">
+  <b style="font-size:14px">関東 RE適地スコア</b>
+
+  <h3>対象県</h3>
+  <select id="prefSelect" onchange="switchPref(this.value)" style="font-size:13px;font-weight:bold">
+    <option value="all" selected>3県同時表示</option>
+    <option value="tochigi">栃木県</option>
+    <option value="chiba">千葉県</option>
+    <option value="ibaraki">茨城県</option>
+  </select>
+
+  <h3>適地メッシュ</h3>
+  <label><input type="checkbox" id="chkMesh" checked onchange="toggleMesh()"> メッシュ表示</label>
+  <div style="margin:4px 0 2px 18px">
+    <button class="res-btn active" id="btn30m" onclick="switchRes(30)">30m タイル</button>
+    <button class="res-btn" id="btn5m" onclick="switchRes(5)">5m 高精細</button>
+  </div>
+  <small style="color:#888">30m=タイル配信 / 5m=画像オーバーレイ</small><br>
+  <small id="warn5m" style="color:#cc6600;display:none">5m: PNG読み込みに数秒〜十数秒かかります</small>
+
+  <h3>表示モード</h3>
+  <select id="modeSelect" onchange="switchScoreMode(this.value)">
+    <option value="total">総合スコア</option>
+    <option value="slope">傾斜スコア</option>
+    <option value="grid_dist">送電線距離スコア (154kV+)</option>
+    <option value="dist_line">配電線距離スコア (66kV)</option>
+    <option value="sub_dist">変電所距離スコア</option>
+    <option value="land_use">土地利用スコア</option>
+    <option value="elevation">標高スコア</option>
+  </select>
+  <small style="color:#888">各基準のスコア(0-100)を個別表示</small>
+
+  <h3>レイヤー</h3>
+  <label><input type="checkbox" id="chkLines" checked onchange="toggle('lines')"> 送電線 (66kV以上)</label>
+  <label><input type="checkbox" id="chkSubs" checked onchange="toggle('subs')"> 変電所</label>
+  <label><input type="checkbox" id="chkBoundary" checked onchange="toggle('boundary')"> 県境</label>
+  <label><input type="checkbox" id="chkRoads" onchange="toggle('roads')"> 主要道路</label>
+  <small style="color:#888;margin-left:18px">初回は外部API取得のため数秒かかります</small>
+  <label><input type="checkbox" id="chkCapmap" onchange="toggle('capmap')"> 空容量マップ</label>
+  <small style="color:#888;margin-left:18px">配電用変電所91箇所の空容量を色分け表示</small>
+
+  <h3>ハザードマップ</h3>
+  <small style="color:#888">国土交通省タイルを重畳表示（z17以降は拡大）</small>
+  <label><input type="checkbox" id="chkFlood" onchange="toggleHazard('flood')"> 洪水浸水想定</label>
+  <label><input type="checkbox" id="chkSediment" onchange="toggleHazard('sediment')"> 土砂災害警戒</label>
+  <label><input type="checkbox" id="chkTsunami" onchange="toggleHazard('tsunami')"> 津波浸水想定</label>
+</div>
+
+<div id="legend">
+  <div class="block">
+    <b>適地スコア</b>
+    <div class="item"><div class="box" style="background:#006400"></div>80-100 最適</div>
+    <div class="item"><div class="box" style="background:#228B22"></div>60-79 良好</div>
+    <div class="item"><div class="box" style="background:#DAA520"></div>40-59 中程度</div>
+    <div class="item"><div class="box" style="background:#FF8C00"></div>20-39 低い</div>
+    <div class="item"><div class="box" style="background:#DC143C"></div>0-19 不適</div>
+  </div>
+  <div class="block">
+    <b>送電線・変電所</b>
+    <div class="item"><div style="width:20px;height:4px;background:#ff0000"></div>500kV</div>
+    <div class="item"><div style="width:20px;height:4px;background:#ff6600"></div>275kV</div>
+    <div class="item"><div style="width:20px;height:3px;background:#0066ff"></div>154kV</div>
+    <div class="item"><div style="width:20px;height:2px;background:#00aa44"></div>66kV</div>
+    <div class="item"><div style="width:20px;height:2px;background:#999999"></div>不明</div>
+  </div>
+  <div class="block">
+    <b>空容量</b>
+    <div class="item"><div class="box" style="background:red;border-radius:50%;width:12px;height:12px"></div>0MW</div>
+    <div class="item"><div class="box" style="background:orange;border-radius:50%;width:12px;height:12px"></div>1-50MW</div>
+    <div class="item"><div class="box" style="background:green;border-radius:50%;width:12px;height:12px"></div>50MW+</div>
+  </div>
+</div>
+
+<div id="sublist">
+  <div class="tab-btns">
+    <button class="active" onclick="showTab('subs',this)">変電所</button>
+    <button onclick="showTab('lines',this)">送電線</button>
+  </div>
+  <input type="text" placeholder="検索..." oninput="filterList(this.value)">
+  <div style="display:flex;gap:2px;margin-bottom:4px">
+    <small>並替:</small>
+    <button style="font-size:9px;padding:1px 4px;cursor:pointer" onclick="sortList('name')" id="sortName" class="active">50音順</button>
+    <button style="font-size:9px;padding:1px 4px;cursor:pointer" onclick="sortList('area')">地区順</button>
+    <button style="font-size:9px;padding:1px 4px;cursor:pointer" onclick="sortList('voltage')">電圧順</button>
+  </div>
+  <div id="tab-subs" class="list"></div>
+  <div id="tab-lines" class="list" style="display:none"></div>
+</div>
+
+<div id="loading">読み込み中...</div>
+
+<script>
+const prefCenters={tochigi:[36.65,139.88],chiba:[35.60,140.12],ibaraki:[36.34,140.45]};
+let currentPref='tochigi';
+const map = L.map('map').setView([36.0, 140.0], 8);
+
+function clearAllLayers(){
+  if(meshLayer){map.removeLayer(meshLayer);meshLayer=null;}
+  if(rasterMeshLayer){map.removeLayer(rasterMeshLayer);rasterMeshLayer=null;}
+  meshCache={};
+  if(linesLayer){map.removeLayer(linesLayer);linesLayer=null;}
+  if(subsLayer){map.removeLayer(subsLayer);subsLayer=null;}
+  if(boundaryLayer){map.removeLayer(boundaryLayer);boundaryLayer=null;}
+  if(capMapLayer){map.removeLayer(capMapLayer);capMapLayer=null;}
+  _capMapLoading=false;
+  // Clear multi-pref layers
+  allPrefLayers.forEach(l=>map.removeLayer(l));
+  allPrefLayers=[];
+  remove5mLayers();
+  subsData=[];linesListData=[];
+  document.getElementById('tab-subs').innerHTML='';
+  document.getElementById('tab-lines').innerHTML='';
+  // Reset subsReady promise
+  _subsResolve=null;
+  subsReady=new Promise(r=>{_subsResolve=r;});
+}
+let allPrefLayers=[];
+
+async function switchPref(pref){
+  clearAllLayers();
+  if(pref==='all'){
+    currentPref='tochigi';
+    map.setView([36.0,140.0],8);
+    currentPref='all';
+    // メッシュ読み込み（解像度に応じた方式）
+    if(currentMeshRes===5)load5mOverlay();else loadMesh();
+    const prefs=['tochigi','chiba','ibaraki'];
+    for(const pr of prefs){
+      await loadLinesForPref(pr);
+      await loadSubsForPref(pr);
+      await loadBoundaryForPref(pr);
+    }
+    buildSubsList();buildLinesList();
+  }else{
+    currentPref=pref;
+    map.setView(prefCenters[pref],9);
+    if(currentMeshRes===5)load5mOverlay();else loadMesh();
+    loadLines();loadSubs();loadBoundary();
+  }
+}
+function loadMeshForPref(pr){
+  const tileDir=getTileDir(pr,currentScoreMode);
+  const ly=L.tileLayer(tileDir+'/{z}/{x}/{y}.png',{
+    pane:'mesh',maxNativeZoom:14,maxZoom:20,opacity:0.8,
+    errorTileUrl:'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7'
+  }).addTo(map);
+  allPrefLayers.push(ly);
+}
+
+async function loadLinesForPref(pr){
+  try{
+    const r=await fetch(pr+'/lines_66kv.geojson');
+    const d=await r.json();
+    const ly=L.geoJSON(d,{
+      style:f=>{const v=f.properties.voltage_kv||0;
+        return{color:vColor(v),weight:v>=500?6:v>=275?5:v>=154?3.5:2.5,opacity:0.7};},
+      onEachFeature:(f,l)=>{const n=f.properties.name||'';if(n)l.bindTooltip(n,{sticky:true});l.bindPopup(linePopup(f.properties),{maxWidth:300});}
+    }).addTo(map);
+    ly._layerType='lines';
+    allPrefLayers.push(ly);
+  }catch(e){}
+}
+async function loadSubsForPref(pr){
+  try{
+    const r=await fetch(pr+'/subs_66kv.geojson');
+    const d=await r.json();
+    const ly=L.layerGroup();
+    d.features.forEach(f=>{
+      const v=f.properties.voltage_kv||0;
+      const n=f.properties.name||'';
+      let lat,lon;const g=f.geometry;
+      if(g.type==='Point'){lon=g.coordinates[0];lat=g.coordinates[1];}
+      else if(g.type==='Polygon'){const c=g.coordinates[0];lat=c.reduce((s,p)=>s+p[1],0)/c.length;lon=c.reduce((s,p)=>s+p[0],0)/c.length;}
+      else if(g.type==='MultiPolygon'){const c=g.coordinates[0][0];lat=c.reduce((s,p)=>s+p[1],0)/c.length;lon=c.reduce((s,p)=>s+p[0],0)/c.length;}
+      if(!lat||!lon)return;
+      const m2=L.circleMarker([lat,lon],{radius:v>=275?12:v>=154?10:v>=66?8:6,
+        color:vColor(v),fillColor:vColor(v),fillOpacity:0.7,weight:2.5,pane:'substations'});
+      if(n)m2.bindTooltip(n,{permanent:v>=154,direction:'right',className:'sub-label'});
+      m2.bindPopup(subPopup(f.properties),{maxWidth:300});
+      m2.addTo(ly);
+      if(n)subsData.push({name:n,v,lat,lon});
+    });
+    ly.addTo(map);ly._layerType='subs';allPrefLayers.push(ly);
+  }catch(e){}
+}
+async function loadBoundaryForPref(pr){
+  try{
+    const r=await fetch(pr+'/boundary.geojson');
+    const d=await r.json();
+    const ly=L.geoJSON(d,{style:{fillColor:'transparent',color:'#000',weight:4,fillOpacity:0}}).addTo(map);
+    ly._layerType='boundary';allPrefLayers.push(ly);
+  }catch(e){}
+}
+
+// Custom panes for z-order control
+map.createPane('mesh');
+map.getPane('mesh').style.zIndex = 300;
+map.getPane('mesh').style.pointerEvents = 'none';
+
+map.createPane('hazard');
+map.getPane('hazard').style.zIndex = 450;
+map.getPane('hazard').style.pointerEvents = 'none';
+
+// 変電所を送電線より上に（クリック優先）
+map.createPane('substations');
+map.getPane('substations').style.zIndex = 500;
+
+// Base layers
+const bases = {
+  'CartoDB': L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',{attribution:'CartoDB',maxZoom:19}),
+  'OSM': L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{attribution:'OSM',maxZoom:19}),
+  'Google Map': L.tileLayer('https://mt1.google.com/vt/lyrs=m&x={x}&y={y}&z={z}',{attribution:'Google',maxZoom:20}),
+  'Google 衛星': L.tileLayer('https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}',{attribution:'Google',maxZoom:20}),
+  'Google 地形': L.tileLayer('https://mt1.google.com/vt/lyrs=p&x={x}&y={y}&z={z}',{attribution:'Google',maxZoom:20}),
+  '国土地理院': L.tileLayer('https://cyberjapandata.gsi.go.jp/xyz/std/{z}/{x}/{y}.png',{attribution:'GSI',maxZoom:18}),
+  '航空写真': L.tileLayer('https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/{z}/{x}/{y}.jpg',{attribution:'GSI',maxZoom:18}),
+};
+// "なし"を追加して背景非表示を可能に
+const noBase = L.tileLayer('',{maxZoom:20});
+const basesWithNone = {'なし':noBase,...bases};
+bases['CartoDB'].addTo(map);
+L.control.layers(basesWithNone,null,{position:'topright'}).addTo(map);
+
+// Hazard tile layers (国土地理院ハザードマップ)
+const hazardLayers = {
+  flood: L.tileLayer('https://disaportaldata.gsi.go.jp/raster/01_flood_l2_shinsuishin_data/{z}/{x}/{y}.png',
+    {attribution:'国土交通省',maxNativeZoom:17,maxZoom:20,opacity:0.6,pane:'hazard'}),
+  sediment: L.tileLayer('https://disaportaldata.gsi.go.jp/raster/05_dosekiryukeikaikuiki/{z}/{x}/{y}.png',
+    {attribution:'国土交通省',maxNativeZoom:17,maxZoom:20,opacity:0.6,pane:'hazard'}),
+  tsunami: L.tileLayer('https://disaportaldata.gsi.go.jp/raster/04_tsunami_newlegend_data/{z}/{x}/{y}.png',
+    {attribution:'国土交通省',maxNativeZoom:17,maxZoom:20,opacity:0.6,pane:'hazard'}),
+};
+
+// Colors
+function scoreColor(s){
+  if(s>=80)return'#006400';if(s>=60)return'#228B22';if(s>=40)return'#DAA520';if(s>=20)return'#FF8C00';return'#DC143C';
+}
+function vColor(v){
+  if(v>=500)return'#ff0000';if(v>=275)return'#ff6600';if(v>=154)return'#0066ff';if(v>=66)return'#00aa44';return'#999999';
+}
+function capColor(c){if(c<=0)return'red';if(c<=50)return'orange';return'green';}
+
+// State
+let meshLayer=null, meshCache={}, linesLayer=null, subsLayer=null, boundaryLayer=null;
+let roadsLayer=null, capMapLayer=null;
+let subsData=[], linesListData=[];
+let capacityData = null;
+let currentRes=1000;
+let _subsResolve;
+let subsReady = new Promise(r=>{_subsResolve=r;});
+
+// Capacity data (embedded)
+const capDistData = [
+  {name:"那須湯本",cap:0},{name:"豊原",cap:0},{name:"関谷",cap:0},{name:"川治",cap:5},
+  {name:"稲沢",cap:0},{name:"黒磯",cap:1},{name:"那須野",cap:0},{name:"西富山",cap:5},
+  {name:"栗山",cap:5},{name:"川俣",cap:2},{name:"大田原",cap:8},{name:"石上",cap:0},
+  {name:"矢板",cap:0},{name:"湯津上",cap:0},{name:"玉生",cap:0},{name:"鬼怒川",cap:9},
+  {name:"所野",cap:0},{name:"匠町",cap:10},{name:"中禅寺",cap:9},{name:"馬頭",cap:1},
+  {name:"上川井",cap:0},{name:"喜連川",cap:0},{name:"今市",cap:8},{name:"氏家",cap:5},
+  {name:"小室",cap:0},{name:"大沢",cap:0},{name:"上殿",cap:10},{name:"通洞",cap:3},
+  {name:"烏山",cap:0},{name:"徳次郎",cap:0},{name:"宝積寺",cap:0},{name:"河内",cap:0},
+  {name:"岩曽",cap:19},{name:"宮木",cap:6},{name:"鹿沼",cap:0},{name:"茂木",cap:3},
+  {name:"市塙",cap:0},{name:"下高根沢",cap:9},{name:"清原",cap:9},{name:"平出",cap:5},
+  {name:"戸祭",cap:19},{name:"三の沢",cap:14},{name:"粟野",cap:0},{name:"平石",cap:19},
+  {name:"宿郷",cap:19},{name:"宇都宮",cap:9},{name:"馬場通",cap:19},{name:"簗瀬町",cap:19},
+  {name:"松ケ峰",cap:14},{name:"鶴田",cap:4},{name:"深津",cap:4},{name:"下栗",cap:9},
+  {name:"江曽島",cap:19},{name:"梅沢",cap:0},{name:"葛生",cap:4},{name:"田沼",cap:0},
+  {name:"清水",cap:0},{name:"妙田",cap:19},{name:"雀宮",cap:6},{name:"長田",cap:2},
+  {name:"壬生",cap:0},{name:"都賀",cap:4},{name:"真岡",cap:4},{name:"上郷",cap:5},
+  {name:"石橋",cap:4},{name:"東山",cap:4},{name:"葉鹿",cap:0},{name:"二宮",cap:1},
+  {name:"国分寺",cap:0},{name:"総社町",cap:5},{name:"栃木",cap:9},{name:"片柳",cap:2},
+  {name:"足利",cap:7},{name:"萱橋",cap:4},{name:"小山",cap:6},{name:"本郷町",cap:17},
+  {name:"沼和田",cap:16},{name:"犬伏",cap:0},{name:"水代",cap:1},{name:"城山",cap:8},
+  {name:"東足利",cap:0},{name:"山辺",cap:13},{name:"南小山",cap:14},{name:"赤麻",cap:0},
+  {name:"南佐野",cap:13},{name:"田島町",cap:8},{name:"久保田",cap:0},{name:"御厨",cap:14},
+  {name:"東野田",cap:0},{name:"乙女",cap:6},{name:"南赤塚",cap:6},
+];
+
+function getScoreField(){
+  const m=document.getElementById('modeSelect').value;
+  return{total:'total_score',slope:'score_slope',grid:'score_grid_dist',
+    sub:'score_sub_dist',land:'score_land_use',elev:'score_elevation'}[m]||'total_score';
+}
+
+function meshStyle(f){
+  const field=getScoreField();
+  let s=f.properties[field]||0;
+  // 空容量考慮
+  if(document.getElementById('chkCapacity').checked && field==='total_score'){
+    s = Math.min(s * 1.1, 100); // 簡易的に10%加算
+  }
+  return{fillColor:scoreColor(s),color:scoreColor(s),weight:0.2,fillOpacity:0.5};
+}
+
+function onMeshFeature(f,layer){
+  const p=f.properties;
+  layer.bindTooltip(
+    `<b>スコア: ${(p.total_score||0).toFixed(0)}</b><br>`+
+    `傾斜:${(p.score_slope||0).toFixed(0)} 送電線:${(p.score_grid_dist||0).toFixed(0)}<br>`+
+    `変電所:${(p.score_sub_dist||0).toFixed(0)} 土地:${(p.score_land_use||0).toFixed(0)}<br>`+
+    `標高:${(p.score_elevation||0).toFixed(0)}`,
+    {sticky:true}
+  );
+}
+
+function showLoading(v){document.getElementById('loading').style.display=v?'block':'none';}
+
+let rasterMeshLayer=null;
+let currentScoreMode='total';
+let currentMeshRes=30;
+
+// 5m image overlay bounds (from raster_score.py 5m computation)
+const img5mBounds={
+  tochigi:[[36.19914,139.32607],[37.15540,140.29260]],
+  chiba:[[34.89765,139.73906],[36.0,140.88196]],
+  ibaraki:[[35.73879,139.68740],[36.94584,140.85252]],
+};
+// score mode -> PNG filename mapping
+function get5mUrl(pref,mode){
+  if(mode==='total')return pref+'/'+pref+'_5m.png';
+  return pref+'/'+pref+'_'+mode+'_5m.png';
+}
+let img5mLayers=[];
+
+function getTileDir(pref,mode){
+  // tiles_total, tiles_slope, tiles_grid_dist, etc. — fallback to tiles/ for legacy
+  return pref+'/tiles_'+mode;
+}
+
+function loadMesh(){
+  if(rasterMeshLayer){map.removeLayer(rasterMeshLayer);rasterMeshLayer=null;}
+  const tileDir=getTileDir(currentPref,currentScoreMode);
+  rasterMeshLayer=L.tileLayer(tileDir+'/{z}/{x}/{y}.png',{
+    pane:'mesh',maxNativeZoom:14,maxZoom:20,opacity:0.8,
+    errorTileUrl:'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7'
+  });
+  if(document.getElementById('chkMesh').checked)rasterMeshLayer.addTo(map);
+}
+
+function switchScoreMode(mode){
+  currentScoreMode=mode;
+  if(currentMeshRes===30)loadMesh();
+  else load5mOverlay();  // reload 5m with new score mode
+}
+
+function remove5mLayers(){
+  img5mLayers.forEach(l=>map.removeLayer(l));
+  img5mLayers=[];
+}
+
+function load5mOverlay(){
+  remove5mLayers();
+  const prefs=(currentPref==='all')?['tochigi','chiba','ibaraki']:[currentPref];
+  prefs.forEach(pr=>{
+    const bounds=img5mBounds[pr];
+    if(!bounds)return;
+    const url=get5mUrl(pr,currentScoreMode);
+    const ly=L.imageOverlay(url,bounds,{opacity:0.75,pane:'mesh'});
+    if(document.getElementById('chkMesh').checked)ly.addTo(map);
+    img5mLayers.push(ly);
+  });
+}
+
+function switchRes(res){
+  currentMeshRes=res;
+  document.getElementById('btn30m').classList.toggle('active',res===30);
+  document.getElementById('btn5m').classList.toggle('active',res===5);
+  document.getElementById('warn5m').style.display=(res===5)?'inline':'none';
+  if(res===30){
+    remove5mLayers();
+    loadMesh();
+  }else{
+    // remove 30m tiles
+    if(rasterMeshLayer){map.removeLayer(rasterMeshLayer);rasterMeshLayer=null;}
+    allPrefLayers.forEach(l=>{if(l._url&&l._url.includes('/tiles'))map.removeLayer(l);});
+    load5mOverlay();
+  }
+}
+
+function toggleMesh(){
+  const on=document.getElementById('chkMesh').checked;
+  if(rasterMeshLayer){if(on)map.addLayer(rasterMeshLayer);else map.removeLayer(rasterMeshLayer);}
+  // 3県同時表示時のタイルレイヤーもtoggle
+  allPrefLayers.forEach(l=>{
+    if(l._url&&l._url.includes('/tiles')){
+      if(on)map.addLayer(l);else map.removeLayer(l);
+    }
+  });
+  // 5m image overlays
+  img5mLayers.forEach(l=>{if(on)map.addLayer(l);else map.removeLayer(l);});
+}
+
+// Lines (太め)
+async function loadLines(){
+  try{
+    const r=await fetch(currentPref+'/lines_66kv.geojson');
+    const d=await r.json();
+    linesLayer=L.geoJSON(d,{
+      style:f=>{
+        const v=f.properties.voltage_kv||0;
+        return{color:vColor(v),weight:v>=500?6:v>=275?5:v>=154?3.5:2.5,opacity:0.7};
+      },
+      onEachFeature:(f,l)=>{
+        const n=f.properties.name||'';
+        if(n)l.bindTooltip(n,{sticky:true});
+        l.bindPopup(linePopup(f.properties),{maxWidth:300});
+        if(n){
+          const c=f.geometry.coordinates;
+          let lat,lon;
+          if(f.geometry.type==='LineString'){const m=c[Math.floor(c.length/2)];lon=m[0];lat=m[1];}
+          else if(c.length&&c[0].length){lon=c[0][Math.floor(c[0].length/2)][0];lat=c[0][Math.floor(c[0].length/2)][1];}
+          if(lat&&lon)linesListData.push({name:n,v:f.properties.voltage_kv,lat,lon});
+        }
+      }
+    }).addTo(map);
+    buildLinesList();
+  }catch(e){}
+}
+
+// --- Popup builders ---
+function subPopup(p){
+  const n=p.name||'不明';
+  const v=p.voltage_kv||0;
+  let html=`<div style="min-width:220px;font-size:12px">`;
+  html+=`<b style="font-size:14px">${n}</b><br>`;
+  html+=`<span style="color:${vColor(v)}">${v?v+'kV':'電圧不明'}</span>`;
+  if(p.operator)html+=` / ${p.operator}`;
+  if(p.cap_type){
+    html+=`<hr style="margin:4px 0"><b>${p.cap_type}</b><br>`;
+    if(p.cap_voltage)html+=`電圧: ${p.cap_voltage}<br>`;
+    if(p.cap_voltage_primary)html+=`電圧: ${p.cap_voltage_primary}/${p.cap_voltage_secondary}<br>`;
+    if(p.cap_units&&p.cap_units!='nan')html+=`台数: ${p.cap_units}<br>`;
+    if(p.cap_capacity_mw&&p.cap_capacity_mw!='nan')html+=`設備容量: ${p.cap_capacity_mw} MW<br>`;
+    if(p.cap_operational_mw&&p.cap_operational_mw!='nan')html+=`運用容量: ${p.cap_operational_mw} MW<br>`;
+    html+=`<hr style="margin:4px 0">`;
+    html+=`<b>空容量(当該): ${p.cap_available_mw||'-'} MW</b><br>`;
+    html+=`<b>空容量(上位系): ${p.cap_available_upper_mw||'-'} MW</b><br>`;
+    if(p.cap_n1&&p.cap_n1!='nan')html+=`N-1電制: ${p.cap_n1} (${p.cap_n1_mw||'-'}MW)<br>`;
+    if(p.cap_curtail&&p.cap_curtail!='nan'&&p.cap_curtail!='-')html+=`出力制御: ${p.cap_curtail}<br>`;
+    if(p.cap_remarks&&p.cap_remarks!='nan'&&p.cap_remarks!='')html+=`<hr style="margin:4px 0"><small>${p.cap_remarks}</small>`;
+  }
+  html+=`</div>`;
+  return html;
+}
+
+function linePopup(p){
+  const n=p.name||'不明';
+  const v=p.voltage_kv||0;
+  let html=`<div style="min-width:200px;font-size:12px">`;
+  html+=`<b style="font-size:14px">${n}</b><br>`;
+  html+=`<span style="color:${vColor(v)}">${v?v+'kV':'電圧不明'}</span>`;
+  if(p.cap_circuits&&p.cap_circuits!='nan')html+=` / ${p.cap_circuits}回線`;
+  if(p.cap_capacity_mw&&p.cap_capacity_mw!='nan'){
+    html+=`<hr style="margin:4px 0">`;
+    html+=`設備容量: ${p.cap_capacity_mw} MW<br>`;
+    if(p.cap_operational_mw&&p.cap_operational_mw!='nan')html+=`運用容量: ${p.cap_operational_mw} MW<br>`;
+    if(p.cap_constraint&&p.cap_constraint!='nan')html+=`制約要因: ${p.cap_constraint}<br>`;
+    html+=`<hr style="margin:4px 0">`;
+    html+=`<b>空容量(当該): ${p.cap_available_mw||'-'} MW</b><br>`;
+    html+=`<b>空容量(上位系): ${p.cap_available_upper_mw||'-'} MW</b><br>`;
+    if(p.cap_n1&&p.cap_n1!='nan')html+=`N-1電制: ${p.cap_n1} (${p.cap_n1_mw||'-'}MW)<br>`;
+    if(p.cap_remarks&&p.cap_remarks!='nan'&&p.cap_remarks!='')html+=`<hr style="margin:4px 0"><small>${p.cap_remarks}</small>`;
+  }
+  html+=`</div>`;
+  return html;
+}
+
+// Substations — Polygon/Pointをすべて centroid の CircleMarker に変換
+async function loadSubs(){
+  try{
+    const r=await fetch(currentPref+'/subs_66kv.geojson');
+    const d=await r.json();
+    subsLayer=L.layerGroup();
+    d.features.forEach(f=>{
+      const v=f.properties.voltage_kv||0;
+      const n=f.properties.name||'';
+      // centroid計算
+      let lat,lon;
+      const g=f.geometry;
+      if(g.type==='Point'){
+        lon=g.coordinates[0];lat=g.coordinates[1];
+      }else if(g.type==='Polygon'){
+        const coords=g.coordinates[0];
+        lat=coords.reduce((s,c)=>s+c[1],0)/coords.length;
+        lon=coords.reduce((s,c)=>s+c[0],0)/coords.length;
+      }else if(g.type==='MultiPolygon'){
+        const coords=g.coordinates[0][0];
+        lat=coords.reduce((s,c)=>s+c[1],0)/coords.length;
+        lon=coords.reduce((s,c)=>s+c[0],0)/coords.length;
+      }
+      if(!lat||!lon)return;
+      const radius=v>=275?12:v>=154?10:v>=66?8:6;
+      const m=L.circleMarker([lat,lon],{
+        radius,color:vColor(v),fillColor:vColor(v),fillOpacity:0.7,weight:2.5,pane:'substations'
+      });
+      if(n)m.bindTooltip(n,{permanent:v>=154,direction:'right',className:'sub-label'});
+      m.bindPopup(subPopup(f.properties),{maxWidth:300});
+      m.addTo(subsLayer);
+      if(n)subsData.push({name:n,v,lat,lon});
+    });
+    subsLayer.addTo(map);
+    buildSubsList();
+    _subsResolve();
+  }catch(e){console.error('loadSubs error:',e);_subsResolve();}
+}
+
+// Boundary
+async function loadBoundary(){
+  try{
+    const r=await fetch(currentPref+'/boundary.geojson');
+    const d=await r.json();
+    boundaryLayer=L.geoJSON(d,{style:{fillColor:'transparent',color:'#000',weight:4,fillOpacity:0}}).addTo(map);
+  }catch(e){}
+}
+
+// Roads (主要道路、太め)
+async function loadRoads(){
+  if(roadsLayer)return;
+  showLoading(true);
+  try{
+    const r=await fetch('https://overpass-api.de/api/interpreter',{
+      method:'POST',
+      body:'data=[out:json][timeout:30];way["highway"~"motorway|trunk|primary"](36.19,139.32,37.16,140.30);out geom;'
+    });
+    const d=await r.json();
+    const features=d.elements.filter(e=>e.type==='way'&&e.geometry).map(e=>({
+      type:'Feature',
+      properties:{name:e.tags?.name||'',highway:e.tags?.highway||''},
+      geometry:{type:'LineString',coordinates:e.geometry.map(n=>[n.lon,n.lat])}
+    }));
+    roadsLayer=L.geoJSON({type:'FeatureCollection',features},{
+      style:f=>{
+        const hw=f.properties.highway;
+        return{color:hw==='motorway'?'#cc0000':hw==='trunk'?'#dd6600':'#888',
+               weight:hw==='motorway'?4:hw==='trunk'?3:2,opacity:0.6};
+      },
+      onEachFeature:(f,l)=>{if(f.properties.name)l.bindTooltip(f.properties.name,{sticky:true});}
+    }).addTo(map);
+  }catch(e){alert('道路読み込みエラー');}
+  showLoading(false);
+}
+
+// Capacity map
+let _capMapLoading=false;
+async function loadCapMap(){
+  if(capMapLayer){map.addLayer(capMapLayer);return;}
+  if(_capMapLoading)return;
+  _capMapLoading=true;
+  await subsReady;          // ensure subsData is populated
+  capMapLayer=L.layerGroup();
+  subsData.forEach(s=>{
+    const cd=capDistData.find(c=>s.name.includes(c.name));
+    if(cd){
+      L.circleMarker([s.lat,s.lon],{
+        radius:12,color:capColor(cd.cap),fillColor:capColor(cd.cap),fillOpacity:0.85,weight:3
+      }).bindTooltip(`${s.name}: ${cd.cap}MW`,{permanent:true,direction:'right',className:'sub-label'}).addTo(capMapLayer);
+    }
+  });
+  // Only add to map if checkbox is still checked after async wait
+  if(document.getElementById('chkCapmap').checked) capMapLayer.addTo(map);
+}
+
+function toggle(what){
+  const layers={lines:linesLayer,subs:subsLayer,boundary:boundaryLayer,roads:roadsLayer,capmap:capMapLayer};
+  const chkId='chk'+what.charAt(0).toUpperCase()+what.slice(1);
+  const chk=document.getElementById(chkId);
+  if(!chk)return;
+  if(what==='roads'&&!roadsLayer&&chk.checked){loadRoads();return;}
+  if(what==='capmap'&&!capMapLayer&&chk.checked){loadCapMap();return;}
+  // 単体県のレイヤー
+  const ly=layers[what];
+  if(ly){if(chk.checked)map.addLayer(ly);else map.removeLayer(ly);}
+  // 3県同時表示のレイヤー（_layerTypeタグで判別）
+  allPrefLayers.forEach(l=>{
+    if(l._layerType===what){
+      if(chk.checked){if(!map.hasLayer(l))map.addLayer(l);}
+      else{if(map.hasLayer(l))map.removeLayer(l);}
+    }
+  });
+}
+
+function toggleHazard(type){
+  const chk=document.getElementById('chk'+type.charAt(0).toUpperCase()+type.slice(1));
+  const ly=hazardLayers[type];
+  if(chk.checked)ly.addTo(map);else map.removeLayer(ly);
+}
+
+// List
+function buildSubsList(){
+  const sorted=sortEntries(subsData,currentSort);
+  document.getElementById('tab-subs').innerHTML=sorted.map(s=>
+    `<div class="entry" style="border-color:${vColor(s.v)}" onclick="flyAndHighlight(${s.lat},${s.lon},14)">`+
+    `<small style="color:${vColor(s.v)}">${s.v.toFixed(0)}kV</small> ${s.name}</div>`
+  ).join('');
+}
+function buildLinesList(){
+  const seen=new Set();
+  const u=linesListData.filter(l=>{if(seen.has(l.name))return false;seen.add(l.name);return true;});
+  const sorted=sortEntries(u,currentSort);
+  document.getElementById('tab-lines').innerHTML=sorted.slice(0,300).map(l=>
+    `<div class="entry" style="border-color:${vColor(l.v)}" onclick="flyAndHighlight(${l.lat},${l.lon},13)">`+
+    `<small style="color:${vColor(l.v)}">${l.v.toFixed(0)}kV</small> ${l.name}</div>`
+  ).join('');
+}
+function showTab(t,btn){
+  document.getElementById('tab-subs').style.display=t==='subs'?'block':'none';
+  document.getElementById('tab-lines').style.display=t==='lines'?'block':'none';
+  document.querySelectorAll('.tab-btns button').forEach(b=>b.classList.remove('active'));
+  btn.classList.add('active');
+}
+// 強調アニメーション
+let highlightMarker=null;
+function flyAndHighlight(lat,lon,zoom){
+  map.flyTo([lat,lon],zoom,{duration:0.8});
+  // 既存のハイライトを除去
+  if(highlightMarker){map.removeLayer(highlightMarker);highlightMarker=null;}
+  // パルスアニメーション
+  setTimeout(()=>{
+    highlightMarker=L.circleMarker([lat,lon],{
+      radius:20,color:'#ff0000',fillColor:'#ff0000',fillOpacity:0.3,weight:3
+    }).addTo(map);
+    let r=20,growing=false;
+    const pulse=setInterval(()=>{
+      r+=growing?2:-2;
+      if(r<=8)growing=true;
+      if(r>=25)growing=false;
+      highlightMarker.setRadius(r);
+    },50);
+    // 5秒後に消す
+    setTimeout(()=>{
+      clearInterval(pulse);
+      if(highlightMarker){map.removeLayer(highlightMarker);highlightMarker=null;}
+    },5000);
+  },900);
+}
+
+let currentSort='name';
+function sortList(mode){
+  currentSort=mode;
+  document.querySelectorAll('#sublist button[id^=sort]').forEach(b=>b.classList.remove('active'));
+  const btn=document.getElementById('sort'+mode.charAt(0).toUpperCase()+mode.slice(1));
+  if(btn)btn.classList.add('active');
+  buildSubsList();buildLinesList();
+}
+
+function sortEntries(arr,mode){
+  if(mode==='name') return arr.slice().sort((a,b)=>a.name.localeCompare(b.name,'ja'));
+  if(mode==='voltage') return arr.slice().sort((a,b)=>b.v-a.v||a.name.localeCompare(b.name,'ja'));
+  if(mode==='area') return arr.slice().sort((a,b)=>a.lat===b.lat?a.lon-b.lon:b.lat-a.lat); // 北→南
+  return arr;
+}
+
+function filterList(q){
+  q=q.toLowerCase();
+  document.querySelectorAll('#sublist .entry').forEach(e=>{
+    e.style.display=e.textContent.toLowerCase().includes(q)?'block':'none';
+  });
+}
+
+// Init
+// 初期表示: 3県同時
+switchPref('all');
+</script>
+</body>
+</html>
