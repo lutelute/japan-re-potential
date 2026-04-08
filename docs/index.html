@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>全国 再エネ適地スコアマップ (5m)</title>
+<title>全国 再エネ適地スコアマップ</title>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <style>
@@ -14,7 +14,6 @@ html,body{margin:0;padding:0;height:100%;font-family:-apple-system,'Hiragino San
   max-height:90vh;overflow-y:auto;width:240px}
 #controls h3{margin:8px 0 4px;font-size:13px;border-bottom:1px solid #ddd;padding-bottom:2px}
 #controls select{font-size:12px;padding:3px 6px;width:100%}
-.layer-group{max-height:200px;overflow-y:auto;border:1px solid #eee;padding:4px;margin:4px 0;border-radius:4px}
 #controls label{display:block;margin:2px 0;cursor:pointer;font-size:11px}
 #controls label input{margin-right:4px}
 #legend{position:absolute;bottom:8px;left:50%;transform:translateX(-50%);z-index:1000;
@@ -29,6 +28,16 @@ html,body{margin:0;padding:0;height:100%;font-family:-apple-system,'Hiragino San
   background:rgba(0,0,0,.75);color:white;padding:20px 40px;border-radius:10px;font-size:16px;display:none}
 .sub-label{font-size:10px;font-weight:bold;border:none;box-shadow:none;background:transparent;
   text-shadow:1px 1px 1px white,-1px -1px 1px white,1px -1px 1px white,-1px 1px 1px white}
+#sublist{position:absolute;bottom:30px;right:10px;z-index:1000;background:white;
+  padding:8px;border-radius:8px;box-shadow:0 2px 10px rgba(0,0,0,.35);font-size:10px;
+  max-height:50vh;width:220px;overflow:hidden}
+#sublist input{width:100%;box-sizing:border-box;font-size:10px;padding:4px;margin-bottom:4px;border:1px solid #ccc;border-radius:3px}
+#sublist .list{overflow-y:auto;max-height:calc(50vh - 70px)}
+#sublist .entry{cursor:pointer;padding:3px 5px;border-left:3px solid #999;margin:1px 0}
+#sublist .entry:hover{background:#e8f5e8}
+.tab-btns{display:flex;gap:2px;margin-bottom:4px}
+.tab-btns button{flex:1;font-size:10px;padding:3px;border:1px solid #ccc;cursor:pointer;background:#f5f5f5;border-radius:3px}
+.tab-btns button.active{background:#006400;color:white;border-color:#006400}
 #stats{position:absolute;top:10px;right:10px;z-index:1000;background:rgba(255,255,255,0.93);
   padding:8px 12px;border-radius:8px;box-shadow:0 2px 10px rgba(0,0,0,.35);font-size:11px;width:180px}
 </style>
@@ -37,7 +46,7 @@ html,body{margin:0;padding:0;height:100%;font-family:-apple-system,'Hiragino San
 <div id="map"></div>
 
 <div id="controls">
-  <b style="font-size:14px">全国 RE適地スコア (5m)</b>
+  <b style="font-size:14px">全国 RE適地スコア</b>
 
   <h3>電力エリア</h3>
   <select id="areaSelect" onchange="switchArea(this.value)">
@@ -57,6 +66,17 @@ html,body{margin:0;padding:0;height:100%;font-family:-apple-system,'Hiragino San
   <h3>都道府県</h3>
   <select id="prefSelect" onchange="switchPref(this.value)">
     <option value="all">-- エリア内全表示 --</option>
+  </select>
+
+  <h3>表示モード</h3>
+  <select id="modeSelect" onchange="switchScoreMode(this.value)">
+    <option value="total">総合スコア</option>
+    <option value="slope">傾斜スコア</option>
+    <option value="grid_dist">送電線距離スコア (154kV+)</option>
+    <option value="dist_line">配電線距離スコア (66kV)</option>
+    <option value="sub_dist">変電所距離スコア</option>
+    <option value="land_use">土地利用スコア</option>
+    <option value="elevation">標高スコア</option>
   </select>
 
   <h3>スコアオーバーレイ</h3>
@@ -94,6 +114,22 @@ html,body{margin:0;padding:0;height:100%;font-family:-apple-system,'Hiragino San
   </div>
 </div>
 
+<div id="sublist">
+  <div class="tab-btns">
+    <button class="active" onclick="showTab('subs',this)">変電所</button>
+    <button onclick="showTab('lines',this)">送電線</button>
+  </div>
+  <input type="text" placeholder="検索..." oninput="filterList(this.value)">
+  <div style="display:flex;gap:2px;margin-bottom:4px">
+    <small>並替:</small>
+    <button style="font-size:9px;padding:1px 4px;cursor:pointer" onclick="sortList('name')" id="sortName" class="active">50音順</button>
+    <button style="font-size:9px;padding:1px 4px;cursor:pointer" onclick="sortList('area')">地区順</button>
+    <button style="font-size:9px;padding:1px 4px;cursor:pointer" onclick="sortList('voltage')">電圧順</button>
+  </div>
+  <div id="tab-subs" class="list"></div>
+  <div id="tab-lines" class="list" style="display:none"></div>
+</div>
+
 <div id="loading">読み込み中...</div>
 
 <script>
@@ -108,6 +144,7 @@ const bases = {
   'CartoDB': L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',{attribution:'CartoDB',maxZoom:19}),
   'OSM': L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{attribution:'OSM',maxZoom:19}),
   'Google 衛星': L.tileLayer('https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}',{attribution:'Google',maxZoom:20}),
+  'Google 地形': L.tileLayer('https://mt1.google.com/vt/lyrs=p&x={x}&y={y}&z={z}',{attribution:'Google',maxZoom:20}),
   '国土地理院': L.tileLayer('https://cyberjapandata.gsi.go.jp/xyz/std/{z}/{x}/{y}.png',{attribution:'GSI',maxZoom:18}),
   '航空写真': L.tileLayer('https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/{z}/{x}/{y}.jpg',{attribution:'GSI',maxZoom:18}),
 };
@@ -128,7 +165,12 @@ let prefData = {};
 let scoreLayers = [];
 let gridLayers = { lines: [], subs: [] };
 let currentArea = 'all';
+let currentScoreMode = 'total';
 let scoreOpacity = 0.75;
+let subsData = [];
+let linesListData = [];
+let currentTab = 'subs';
+let currentSort = 'name';
 
 const areaCenters = {
   all: [36.5, 137.0, 6],
@@ -160,10 +202,17 @@ function clearScoreLayers(){
   scoreLayers=[];
 }
 
+function getScorePng(key){
+  const mode = currentScoreMode;
+  if(mode==='total') return key+'.png';
+  return 'japan_'+mode+'.png';  // japan_slope.png etc for whole-japan layers
+}
+
 function loadScoreForPref(key){
   const d=prefData[key];
   if(!d)return;
-  const ly=L.imageOverlay(key+'.png', d.bounds, {opacity:scoreOpacity, pane:'score'});
+  const png = key+'.png';  // per-prefecture PNG
+  const ly=L.imageOverlay(png, d.bounds, {opacity:scoreOpacity, pane:'score'});
   ly.addTo(map);
   ly._prefKey=key;
   scoreLayers.push(ly);
@@ -188,11 +237,20 @@ function setOpacity(val){
   scoreLayers.forEach(l=>l.setOpacity(scoreOpacity));
 }
 
+function switchScoreMode(mode){
+  currentScoreMode=mode;
+  // Reload score layers — for now, per-pref total PNGs only
+  // When individual score PNGs are available, switch here
+  loadScoreForArea(currentArea);
+}
+
 // ── 電力系統 ──────────────────────────────────────
 function clearGridLayers(){
   gridLayers.lines.forEach(l=>map.removeLayer(l));
   gridLayers.subs.forEach(l=>map.removeLayer(l));
   gridLayers={lines:[],subs:[]};
+  subsData=[];
+  linesListData=[];
 }
 
 async function loadGridForArea(area){
@@ -207,7 +265,10 @@ async function loadGridForArea(area){
           return{color:vColor(v),weight:v>=500?4:v>=275?3:v>=154?2.5:1.5,opacity:0.6};},
         onEachFeature:(f,l)=>{
           const n=f.properties.name||'';const v=f.properties.voltage_kv||0;
-          if(n)l.bindTooltip(`${n} (${v}kV)`,{sticky:true});
+          if(n){
+            l.bindTooltip(`${n} (${v}kV)`,{sticky:true});
+            linesListData.push({name:n,v,area:a,layer:l});
+          }
         }
       });
       if(document.getElementById('chkLines').checked)ly.addTo(map);
@@ -233,12 +294,15 @@ async function loadGridForArea(area){
         if(n&&v>=154)m.bindTooltip(n,{permanent:true,direction:'right',className:'sub-label'});
         else if(n)m.bindTooltip(n,{sticky:true});
         m.addTo(ly);
+        if(n)subsData.push({name:n,v,lat,lon,area:a});
       });
       if(document.getElementById('chkSubs').checked)ly.addTo(map);
       ly._gridType='subs';
       gridLayers.subs.push(ly);
     }catch(e){}
   }
+  buildSubsList();
+  buildLinesList();
 }
 
 function toggleGrid(type){
@@ -249,6 +313,63 @@ function toggleGrid(type){
 function toggleHazard(type){
   const chk=document.getElementById('chk'+type.charAt(0).toUpperCase()+type.slice(1));
   if(chk.checked)hazardLayers[type].addTo(map);else map.removeLayer(hazardLayers[type]);
+}
+
+// ── 変電所・送電線リスト ──────────────────────────────
+function buildSubsList(){
+  const el=document.getElementById('tab-subs');
+  const sorted=sortData([...subsData],currentSort);
+  el.innerHTML=sorted.map(s=>
+    `<div class="entry" style="border-left-color:${vColor(s.v)}" onclick="map.setView([${s.lat},${s.lon}],14)">
+      <b>${s.name}</b> <small style="color:#888">${s.v>0?s.v+'kV':''}${s.area?' ('+s.area+')':''}</small>
+    </div>`
+  ).join('');
+  document.querySelector('#sublist .tab-btns button:first-child').textContent=`変電所 (${subsData.length})`;
+}
+
+function buildLinesList(){
+  const el=document.getElementById('tab-lines');
+  const sorted=sortData([...linesListData],currentSort);
+  el.innerHTML=sorted.map(s=>
+    `<div class="entry" style="border-left-color:${vColor(s.v)}" onclick="map.fitBounds(linesListData.find(l=>l.name==='${s.name.replace(/'/g,"\\'")}')?.layer?.getBounds())">
+      <b>${s.name}</b> <small style="color:#888">${s.v>0?s.v+'kV':''}${s.area?' ('+s.area+')':''}</small>
+    </div>`
+  ).join('');
+  document.querySelector('#sublist .tab-btns button:last-child').textContent=`送電線 (${linesListData.length})`;
+}
+
+function sortData(arr,mode){
+  if(mode==='name')return arr.sort((a,b)=>a.name.localeCompare(b.name,'ja'));
+  if(mode==='voltage')return arr.sort((a,b)=>b.v-a.v);
+  if(mode==='area')return arr.sort((a,b)=>(a.area||'').localeCompare(b.area||'')||a.name.localeCompare(b.name,'ja'));
+  return arr;
+}
+
+function showTab(tab,btn){
+  currentTab=tab;
+  document.getElementById('tab-subs').style.display=tab==='subs'?'':'none';
+  document.getElementById('tab-lines').style.display=tab==='lines'?'':'none';
+  document.querySelectorAll('#sublist .tab-btns button').forEach(b=>b.classList.remove('active'));
+  btn.classList.add('active');
+}
+
+function filterList(q){
+  const tab=currentTab;
+  const el=document.getElementById('tab-'+tab);
+  const entries=el.querySelectorAll('.entry');
+  const ql=q.toLowerCase();
+  entries.forEach(e=>{
+    e.style.display=e.textContent.toLowerCase().includes(ql)?'':'none';
+  });
+}
+
+function sortList(mode){
+  currentSort=mode;
+  document.querySelectorAll('#sublist button[id^=sort]').forEach(b=>b.classList.remove('active'));
+  const btn=document.getElementById('sort'+mode.charAt(0).toUpperCase()+mode.slice(1));
+  if(btn)btn.classList.add('active');
+  buildSubsList();
+  buildLinesList();
 }
 
 // ── 都道府県セレクタ ────────────────────────────────
