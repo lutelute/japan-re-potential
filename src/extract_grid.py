@@ -80,6 +80,16 @@ def main():
     lines = load_area_geojson(grid_area, "lines")
     plants = load_area_geojson(grid_area, "plants")
 
+    # 1.5. 名前のない変電所・発電所を除外
+    n_before_subs = len(subs)
+    subs = subs[subs["name"].notna() & (subs["name"] != "")]
+    n_before_plants = len(plants)
+    plants = plants[plants["name"].notna() & (plants["name"] != "")]
+    if n_before_subs - len(subs) > 0:
+        print(f"  Removed {n_before_subs - len(subs)} unnamed substations")
+    if n_before_plants - len(plants) > 0:
+        print(f"  Removed {n_before_plants - len(plants)} unnamed plants")
+
     # 2. 県域でフィルタ
     print(f"\n[2] {name_ja}エリアでフィルタ")
     subs_f = filter_by_bbox(subs, bbox_tuple, name_ja)
