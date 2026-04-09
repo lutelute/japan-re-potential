@@ -12,4 +12,15 @@ __pycache__/
 # OS
 .DS_Store
 
-# docs_alljapan/ is the GitHub Pages root — track all assets
+# Legacy kanto files in docs/ (not needed for all-Japan Pages)
+docs/tochigi/
+docs/chiba/
+docs/ibaraki/
+docs/map_integrated.png
+docs/map_tsuga.png
+docs/mesh_500m.html
+docs/tsuga.html
+docs/score_distribution.png
+docs/ahp_concept.png
+docs/ahp_weights.png
+docs/map_mesh.png
