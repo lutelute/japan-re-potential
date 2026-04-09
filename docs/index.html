@@ -88,6 +88,14 @@ html,body{margin:0;padding:0;height:100%;font-family:-apple-system,'Hiragino San
   <h3>電力系統</h3>
   <label><input type="checkbox" id="chkLines" checked onchange="toggleGrid('lines')"> 送電線</label>
   <label><input type="checkbox" id="chkSubs" checked onchange="toggleGrid('subs')"> 変電所</label>
+  <label><input type="checkbox" id="chkPlants" onchange="toggleGrid('plants')"> 発電所</label>
+  <label><input type="checkbox" id="chkSubLabels" checked onchange="toggleSubLabels()"> 変電所名表示</label>
+  <div style="margin-left:12px;font-size:10px;color:#555">
+    <label><input type="checkbox" class="vFilter" value="500" checked onchange="applyVoltageFilter()"> <span style="color:#ff0000">&#9632;</span> 500kV</label>
+    <label><input type="checkbox" class="vFilter" value="275" checked onchange="applyVoltageFilter()"> <span style="color:#ff6600">&#9632;</span> 275kV</label>
+    <label><input type="checkbox" class="vFilter" value="154" checked onchange="applyVoltageFilter()"> <span style="color:#0066ff">&#9632;</span> 154kV</label>
+    <label><input type="checkbox" class="vFilter" value="66" checked onchange="applyVoltageFilter()"> <span style="color:#00aa44">&#9632;</span> 66kV</label>
+  </div>
 
   <h3>ハザードマップ</h3>
   <small style="color:#888">国土交通省タイル重畳</small>
@@ -111,6 +119,15 @@ html,body{margin:0;padding:0;height:100%;font-family:-apple-system,'Hiragino San
     <div class="item"><div style="width:20px;height:4px;background:#ff6600"></div>275kV</div>
     <div class="item"><div style="width:20px;height:3px;background:#0066ff"></div>154kV</div>
     <div class="item"><div style="width:20px;height:2px;background:#00aa44"></div>66kV</div>
+  </div>
+  <div class="block">
+    <b>発電所</b>
+    <div class="item"><div class="box" style="background:#f5c542;border-radius:50%;width:10px;height:10px"></div>太陽光</div>
+    <div class="item"><div class="box" style="background:#42a5f5;border-radius:50%;width:10px;height:10px"></div>水力</div>
+    <div class="item"><div class="box" style="background:#66bb6a;border-radius:50%;width:10px;height:10px"></div>風力</div>
+    <div class="item"><div class="box" style="background:#ef5350;border-radius:50%;width:10px;height:10px"></div>火力</div>
+    <div class="item"><div class="box" style="background:#ab47bc;border-radius:50%;width:10px;height:10px"></div>原子力</div>
+    <div class="item"><div class="box" style="background:#78909c;border-radius:50%;width:10px;height:10px"></div>その他</div>
   </div>
 </div>
 
@@ -163,7 +180,8 @@ const hazardLayers = {
 // ── データ ─────────────────────────────────────────
 let prefData = {};
 let scoreLayers = [];
-let gridLayers = { lines: [], subs: [] };
+let gridLayers = { lines: [], subs: [], plants: [] };
+let subLabelVisible = true;
 let currentArea = 'all';
 let currentScoreMode = 'total';
 let scoreOpacity = 0.75;
@@ -256,19 +274,57 @@ function switchScoreMode(mode){
 function clearGridLayers(){
   gridLayers.lines.forEach(l=>map.removeLayer(l));
   gridLayers.subs.forEach(l=>map.removeLayer(l));
-  gridLayers={lines:[],subs:[]};
+  gridLayers.plants.forEach(l=>map.removeLayer(l));
+  gridLayers={lines:[],subs:[],plants:[]};
   subsData=[];
   linesListData=[];
 }
 
+function fuelColor(fuel){
+  const f=(fuel||'').toLowerCase();
+  if(f.includes('solar')||f.includes('photovoltaic'))return'#f5c542';
+  if(f.includes('hydro')||f.includes('water'))return'#42a5f5';
+  if(f.includes('wind'))return'#66bb6a';
+  if(f.includes('coal')||f.includes('gas')||f.includes('oil')||f.includes('thermal'))return'#ef5350';
+  if(f.includes('nuclear'))return'#ab47bc';
+  return'#78909c';
+}
+
+function getEnabledVoltages(){
+  return [...document.querySelectorAll('.vFilter:checked')].map(c=>parseInt(c.value));
+}
+
+function voltageInRange(kv, enabled){
+  if(kv>=500) return enabled.includes(500);
+  if(kv>=275) return enabled.includes(275);
+  if(kv>=154) return enabled.includes(154);
+  if(kv>=66) return enabled.includes(66);
+  return enabled.includes(66); // below 66kV follows 66kV toggle
+}
+
+function applyVoltageFilter(){
+  // Reload grid with current filter
+  clearGridLayers();
+  loadGridForArea(currentArea);
+}
+
+function toggleSubLabels(){
+  subLabelVisible=document.getElementById('chkSubLabels').checked;
+  // Reload subs to apply
+  clearGridLayers();
+  loadGridForArea(currentArea);
+}
+
 async function loadGridForArea(area){
   const areas = area==='all' ? gridAreaFiles : [area];
+  const enabled = getEnabledVoltages();
   for(const a of areas){
     // 送電線
     try{
       const r=await fetch(`grid/${a}_lines.geojson`);
       const d=await r.json();
       const ly=L.geoJSON(d,{
+        filter:f=>{const v=parseKV(f.properties.voltage); return voltageInRange(v,enabled);},
         style:f=>{const v=parseKV(f.properties.voltage);
           return{color:vColor(v),weight:v>=500?4:v>=275?3:v>=154?2.5:1.5,opacity:0.7};},
         onEachFeature:(f,l)=>{
@@ -291,6 +347,7 @@ async function loadGridForArea(area){
       const ly=L.layerGroup();
       d.features.forEach(f=>{
         const v=parseKV(f.properties.voltage);
+        if(!voltageInRange(v,enabled))return;
         const n=f.properties.name||'';
         let lat,lon;const g=f.geometry;
         if(g.type==='Point'){lon=g.coordinates[0];lat=g.coordinates[1];}
@@ -299,7 +356,7 @@ async function loadGridForArea(area){
         if(!lat||!lon)return;
         const m=L.circleMarker([lat,lon],{radius:v>=275?8:v>=154?6:v>=66?4:3,
           color:vColor(v),fillColor:vColor(v),fillOpacity:0.7,weight:1.5,pane:'substations'});
-        if(n&&v>=154)m.bindTooltip(n,{permanent:true,direction:'right',className:'sub-label'});
+        if(n&&v>=154&&subLabelVisible)m.bindTooltip(n,{permanent:true,direction:'right',className:'sub-label'});
         else if(n)m.bindTooltip(n,{sticky:true});
         m.addTo(ly);
         if(n)subsData.push({name:n,v,lat,lon,area:a});
@@ -308,13 +365,35 @@ async function loadGridForArea(area){
       ly._gridType='subs';
       gridLayers.subs.push(ly);
     }catch(e){}
+
+    // 発電所 (lightweight)
+    try{
+      const r=await fetch(`grid/${a}_plants_lite.geojson`);
+      const d=await r.json();
+      const ly=L.layerGroup();
+      d.features.forEach(f=>{
+        const n=f.properties.name||'';
+        const fuel=f.properties.fuel||'';
+        const output=f.properties.output||'';
+        const coords=f.geometry.coordinates;
+        const col=fuelColor(fuel);
+        const m=L.circleMarker([coords[1],coords[0]],{radius:3,color:col,fillColor:col,fillOpacity:0.8,weight:0.5});
+        const tip=`<b>${n}</b>${fuel?' ('+fuel+')':''}${output?' '+output:''}`;
+        m.bindTooltip(tip,{sticky:true});
+        m.addTo(ly);
+      });
+      if(document.getElementById('chkPlants').checked)ly.addTo(map);
+      ly._gridType='plants';
+      gridLayers.plants.push(ly);
+    }catch(e){}
   }
   buildSubsList();
   buildLinesList();
 }
 
 function toggleGrid(type){
-  const on=document.getElementById(type==='lines'?'chkLines':'chkSubs').checked;
+  const id=type==='lines'?'chkLines':type==='subs'?'chkSubs':'chkPlants';
+  const on=document.getElementById(id).checked;
   gridLayers[type].forEach(l=>{if(on)l.addTo(map);else map.removeLayer(l);});
 }
 
