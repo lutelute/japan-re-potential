@@ -190,6 +190,14 @@ const gridAreaFiles = [
   'hokkaido','tohoku','tokyo','chubu','hokuriku','kansai','chugoku','shikoku','kyushu','okinawa'
 ];
 
+function parseKV(raw){
+  if(!raw||raw==='none')return 0;
+  // Take the highest voltage from "154000;66000" style strings
+  const parts=String(raw).split(';').map(s=>parseFloat(s.replace(/[^0-9.]/g,''))).filter(n=>!isNaN(n));
+  if(!parts.length)return 0;
+  const v=Math.max(...parts);
+  return v>1000?v/1000:v; // V→kV
+}
 function vColor(v){
   if(v>=500)return'#ff0000';if(v>=275)return'#ff6600';if(v>=154)return'#0066ff';if(v>=66)return'#00aa44';return'#999999';
 }
@@ -261,10 +269,10 @@ async function loadGridForArea(area){
       const r=await fetch(`grid/${a}_lines.geojson`);
       const d=await r.json();
       const ly=L.geoJSON(d,{
-        style:f=>{const v=f.properties.voltage_kv||0;
-          return{color:vColor(v),weight:v>=500?4:v>=275?3:v>=154?2.5:1.5,opacity:0.6};},
+        style:f=>{const v=parseKV(f.properties.voltage);
+          return{color:vColor(v),weight:v>=500?4:v>=275?3:v>=154?2.5:1.5,opacity:0.7};},
         onEachFeature:(f,l)=>{
-          const n=f.properties.name||'';const v=f.properties.voltage_kv||0;
+          const n=f.properties.name||'';const v=parseKV(f.properties.voltage);
           if(n){
             l.bindTooltip(`${n} (${v}kV)`,{sticky:true});
             linesListData.push({name:n,v,area:a,layer:l});
@@ -282,7 +290,7 @@ async function loadGridForArea(area){
       const d=await r.json();
       const ly=L.layerGroup();
       d.features.forEach(f=>{
-        const v=f.properties.voltage_kv||0;
+        const v=parseKV(f.properties.voltage);
         const n=f.properties.name||'';
         let lat,lon;const g=f.geometry;
         if(g.type==='Point'){lon=g.coordinates[0];lat=g.coordinates[1];}
