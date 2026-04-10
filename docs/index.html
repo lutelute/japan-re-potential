@@ -38,8 +38,6 @@ html,body{margin:0;padding:0;height:100%;font-family:-apple-system,'Hiragino San
 .tab-btns{display:flex;gap:2px;margin-bottom:4px}
 .tab-btns button{flex:1;font-size:10px;padding:3px;border:1px solid #ccc;cursor:pointer;background:#f5f5f5;border-radius:3px}
 .tab-btns button.active{background:#006400;color:white;border-color:#006400}
-#stats{position:absolute;top:10px;right:10px;z-index:1000;background:rgba(255,255,255,0.93);
-  padding:8px 12px;border-radius:8px;box-shadow:0 2px 10px rgba(0,0,0,.35);font-size:11px;width:180px}
 </style>
 </head>
 <body>
@@ -82,7 +80,7 @@ html,body{margin:0;padding:0;height:100%;font-family:-apple-system,'Hiragino San
   <h3>スコアオーバーレイ</h3>
   <label><input type="checkbox" id="chkScore" checked onchange="toggleScoreLayer()"> 適地スコア表示</label>
   <div style="margin-left:18px">
-    <label><input type="range" id="opacitySlider" min="0" max="100" value="75" oninput="setOpacity(this.value)"> 透過度</label>
+    <label><input type="range" id="opacitySlider" min="0" max="100" value="55" oninput="setOpacity(this.value)"> 透過度</label>
   </div>
 
   <h3>電力系統</h3>
@@ -177,14 +175,17 @@ const hazardLayers = {
     {attribution:'国土交通省',maxNativeZoom:17,maxZoom:20,opacity:0.6,pane:'hazard'}),
 };
 
-// ── データ ─────────────────────────────────────────
+// ── データ・状態 ──────────────────────────────────────
 let prefData = {};
-let scoreLayers = [];
+let scoreLayerCache = {};   // key -> L.imageOverlay (cached, may or may not be on map)
+let activeScoreKeys = new Set();
 let gridLayers = { lines: [], subs: [], plants: [] };
+let gridDataCache = {};     // area -> {lines: geojson, subs: geojson, plants: geojson}
+let subMarkerRefs = [];     // {marker, name, v, area}
 let subLabelVisible = true;
 let currentArea = 'all';
 let currentScoreMode = 'total';
-let scoreOpacity = 0.75;
+let scoreOpacity = 0.55;
 let subsData = [];
 let linesListData = [];
 let currentTab = 'subs';
@@ -208,78 +209,17 @@ const gridAreaFiles = [
   'hokkaido','tohoku','tokyo','chubu','hokuriku','kansai','chugoku','shikoku','kyushu','okinawa'
 ];
 
+// ── ユーティリティ ─────────────────────────────────────
 function parseKV(raw){
   if(!raw||raw==='none')return 0;
-  // Take the highest voltage from "154000;66000" style strings
   const parts=String(raw).split(';').map(s=>parseFloat(s.replace(/[^0-9.]/g,''))).filter(n=>!isNaN(n));
   if(!parts.length)return 0;
   const v=Math.max(...parts);
-  return v>1000?v/1000:v; // V→kV
+  return v>1000?v/1000:v;
 }
 function vColor(v){
   if(v>=500)return'#ff0000';if(v>=275)return'#ff6600';if(v>=154)return'#0066ff';if(v>=66)return'#00aa44';return'#999999';
 }
-
-function showLoading(v){document.getElementById('loading').style.display=v?'block':'none';}
-
-// ── スコアレイヤー ──────────────────────────────────
-function clearScoreLayers(){
-  scoreLayers.forEach(l=>map.removeLayer(l));
-  scoreLayers=[];
-}
-
-function getScorePng(key){
-  const mode = currentScoreMode;
-  if(mode==='total') return key+'.png';
-  return 'japan_'+mode+'.png';  // japan_slope.png etc for whole-japan layers
-}
-
-function loadScoreForPref(key){
-  const d=prefData[key];
-  if(!d)return;
-  const png = key+'.png';  // per-prefecture PNG
-  const ly=L.imageOverlay(png, d.bounds, {opacity:scoreOpacity, pane:'score'});
-  ly.addTo(map);
-  ly._prefKey=key;
-  scoreLayers.push(ly);
-}
-
-function loadScoreForArea(area){
-  clearScoreLayers();
-  for(const [key,d] of Object.entries(prefData)){
-    if(area==='all'||d.grid_area===area){
-      loadScoreForPref(key);
-    }
-  }
-}
-
-function toggleScoreLayer(){
-  const on=document.getElementById('chkScore').checked;
-  scoreLayers.forEach(l=>{if(on)l.addTo(map);else map.removeLayer(l);});
-}
-
-function setOpacity(val){
-  scoreOpacity=val/100;
-  scoreLayers.forEach(l=>l.setOpacity(scoreOpacity));
-}
-
-function switchScoreMode(mode){
-  currentScoreMode=mode;
-  // Reload score layers — for now, per-pref total PNGs only
-  // When individual score PNGs are available, switch here
-  loadScoreForArea(currentArea);
-}
-
-// ── 電力系統 ──────────────────────────────────────
-function clearGridLayers(){
-  gridLayers.lines.forEach(l=>map.removeLayer(l));
-  gridLayers.subs.forEach(l=>map.removeLayer(l));
-  gridLayers.plants.forEach(l=>map.removeLayer(l));
-  gridLayers={lines:[],subs:[],plants:[]};
-  subsData=[];
-  linesListData=[];
-}
-
 function fuelColor(fuel){
   const f=(fuel||'').toLowerCase();
   if(f.includes('solar')||f.includes('photovoltaic'))return'#f5c542';
@@ -289,106 +229,207 @@ function fuelColor(fuel){
   if(f.includes('nuclear'))return'#ab47bc';
   return'#78909c';
 }
+function showLoading(v){document.getElementById('loading').style.display=v?'block':'none';}
 
+function boundsIntersect(b1, b2){
+  // b1, b2: [[south,west],[north,east]]
+  return !(b1[0][0]>b2[1][0] || b1[1][0]<b2[0][0] || b1[0][1]>b2[1][1] || b1[1][1]<b2[0][1]);
+}
+
+// ── スコアレイヤー (viewport lazy loading) ────────────────
+function getVisiblePrefKeys(area){
+  const vb = map.getBounds();
+  const viewBounds = [[vb.getSouth(), vb.getWest()], [vb.getNorth(), vb.getEast()]];
+  const keys = [];
+  for(const [key,d] of Object.entries(prefData)){
+    if(area!=='all' && d.grid_area!==area) continue;
+    if(boundsIntersect(d.bounds, viewBounds)) keys.push(key);
+  }
+  return keys;
+}
+
+function ensureScoreLayer(key){
+  if(scoreLayerCache[key]) return scoreLayerCache[key];
+  const d=prefData[key];
+  if(!d) return null;
+  const ly=L.imageOverlay(key+'.png', d.bounds, {opacity:scoreOpacity, pane:'score'});
+  scoreLayerCache[key]=ly;
+  return ly;
+}
+
+function updateVisibleScoreLayers(){
+  if(!document.getElementById('chkScore').checked) return;
+  const visible = new Set(getVisiblePrefKeys(currentArea));
+  // Remove layers no longer visible
+  for(const key of activeScoreKeys){
+    if(!visible.has(key)){
+      const ly=scoreLayerCache[key];
+      if(ly) map.removeLayer(ly);
+      activeScoreKeys.delete(key);
+    }
+  }
+  // Add newly visible layers
+  for(const key of visible){
+    if(!activeScoreKeys.has(key)){
+      const ly=ensureScoreLayer(key);
+      if(ly){ly.addTo(map); activeScoreKeys.add(key);}
+    }
+  }
+}
+
+function clearAllScoreLayers(){
+  for(const key of activeScoreKeys){
+    const ly=scoreLayerCache[key];
+    if(ly) map.removeLayer(ly);
+  }
+  activeScoreKeys.clear();
+}
+
+function toggleScoreLayer(){
+  const on=document.getElementById('chkScore').checked;
+  if(on) updateVisibleScoreLayers();
+  else clearAllScoreLayers();
+}
+
+function setOpacity(val){
+  scoreOpacity=val/100;
+  for(const [,ly] of Object.entries(scoreLayerCache)){
+    ly.setOpacity(scoreOpacity);
+  }
+}
+
+function switchScoreMode(mode){
+  currentScoreMode=mode;
+  // Clear cache and reload (future: per-mode PNGs)
+  clearAllScoreLayers();
+  scoreLayerCache={};
+  updateVisibleScoreLayers();
+}
+
+// ── 電力系統 (with caching & in-place toggle) ──────────────
 function getEnabledVoltages(){
   return [...document.querySelectorAll('.vFilter:checked')].map(c=>parseInt(c.value));
 }
-
 function voltageInRange(kv, enabled){
   if(kv>=500) return enabled.includes(500);
   if(kv>=275) return enabled.includes(275);
   if(kv>=154) return enabled.includes(154);
   if(kv>=66) return enabled.includes(66);
-  return enabled.includes(66); // below 66kV follows 66kV toggle
+  return enabled.includes(66);
 }
 
-function applyVoltageFilter(){
-  // Reload grid with current filter
+function clearGridLayers(){
+  gridLayers.lines.forEach(l=>map.removeLayer(l));
+  gridLayers.subs.forEach(l=>map.removeLayer(l));
+  gridLayers.plants.forEach(l=>map.removeLayer(l));
+  gridLayers={lines:[],subs:[],plants:[]};
+  subsData=[];
+  linesListData=[];
+  subMarkerRefs=[];
+}
+
+async function fetchGridData(area){
+  if(gridDataCache[area]) return gridDataCache[area];
+  const cache={};
+  try{const r=await fetch(`grid/${area}_lines.geojson`); cache.lines=await r.json();}catch(e){cache.lines=null;}
+  try{const r=await fetch(`grid/${area}_substations.geojson`); cache.subs=await r.json();}catch(e){cache.subs=null;}
+  try{const r=await fetch(`grid/${area}_plants_lite.geojson`); cache.plants=await r.json();}catch(e){cache.plants=null;}
+  gridDataCache[area]=cache;
+  return cache;
+}
+
+function buildGridFromCache(areas){
   clearGridLayers();
-  loadGridForArea(currentArea);
-}
+  const enabled=getEnabledVoltages();
 
-function toggleSubLabels(){
-  subLabelVisible=document.getElementById('chkSubLabels').checked;
-  // Reload subs to apply
-  clearGridLayers();
-  loadGridForArea(currentArea);
-}
-
-async function loadGridForArea(area){
-  const areas = area==='all' ? gridAreaFiles : [area];
-  const enabled = getEnabledVoltages();
   for(const a of areas){
+    const cache=gridDataCache[a];
+    if(!cache) continue;
+
     // 送電線
-    try{
-      const r=await fetch(`grid/${a}_lines.geojson`);
-      const d=await r.json();
-      const ly=L.geoJSON(d,{
-        filter:f=>{const v=parseKV(f.properties.voltage); return voltageInRange(v,enabled);},
+    if(cache.lines){
+      const ly=L.geoJSON(cache.lines,{
+        filter:f=>voltageInRange(parseKV(f.properties.voltage),enabled),
         style:f=>{const v=parseKV(f.properties.voltage);
           return{color:vColor(v),weight:v>=500?4:v>=275?3:v>=154?2.5:1.5,opacity:0.7};},
         onEachFeature:(f,l)=>{
           const n=f.properties.name||'';const v=parseKV(f.properties.voltage);
-          if(n){
-            l.bindTooltip(`${n} (${v}kV)`,{sticky:true});
-            linesListData.push({name:n,v,area:a,layer:l});
-          }
+          if(n){l.bindTooltip(`${n} (${v}kV)`,{sticky:true});
+            linesListData.push({name:n,v,area:a,layer:l});}
         }
       });
-      if(document.getElementById('chkLines').checked)ly.addTo(map);
-      ly._gridType='lines';
+      if(document.getElementById('chkLines').checked) ly.addTo(map);
       gridLayers.lines.push(ly);
-    }catch(e){}
+    }
 
     // 変電所
-    try{
-      const r=await fetch(`grid/${a}_substations.geojson`);
-      const d=await r.json();
+    if(cache.subs){
       const ly=L.layerGroup();
-      d.features.forEach(f=>{
+      cache.subs.features.forEach(f=>{
         const v=parseKV(f.properties.voltage);
-        if(!voltageInRange(v,enabled))return;
+        if(!voltageInRange(v,enabled)) return;
         const n=f.properties.name||'';
         let lat,lon;const g=f.geometry;
         if(g.type==='Point'){lon=g.coordinates[0];lat=g.coordinates[1];}
         else if(g.type==='Polygon'){const c=g.coordinates[0];lat=c.reduce((s,p)=>s+p[1],0)/c.length;lon=c.reduce((s,p)=>s+p[0],0)/c.length;}
         else if(g.type==='MultiPolygon'){const c=g.coordinates[0][0];lat=c.reduce((s,p)=>s+p[1],0)/c.length;lon=c.reduce((s,p)=>s+p[0],0)/c.length;}
-        if(!lat||!lon)return;
+        if(!lat||!lon) return;
         const m=L.circleMarker([lat,lon],{radius:v>=275?8:v>=154?6:v>=66?4:3,
           color:vColor(v),fillColor:vColor(v),fillOpacity:0.7,weight:1.5,pane:'substations'});
-        if(n&&v>=154&&subLabelVisible)m.bindTooltip(n,{permanent:true,direction:'right',className:'sub-label'});
-        else if(n)m.bindTooltip(n,{sticky:true});
+        if(n&&v>=154&&subLabelVisible) m.bindTooltip(n,{permanent:true,direction:'right',className:'sub-label'});
+        else if(n) m.bindTooltip(n,{sticky:true});
         m.addTo(ly);
-        if(n)subsData.push({name:n,v,lat,lon,area:a});
+        if(n){subsData.push({name:n,v,lat,lon,area:a}); subMarkerRefs.push({marker:m,name:n,v});}
       });
-      if(document.getElementById('chkSubs').checked)ly.addTo(map);
-      ly._gridType='subs';
+      if(document.getElementById('chkSubs').checked) ly.addTo(map);
       gridLayers.subs.push(ly);
-    }catch(e){}
+    }
 
-    // 発電所 (lightweight)
-    try{
-      const r=await fetch(`grid/${a}_plants_lite.geojson`);
-      const d=await r.json();
+    // 発電所
+    if(cache.plants){
       const ly=L.layerGroup();
-      d.features.forEach(f=>{
+      cache.plants.features.forEach(f=>{
         const n=f.properties.name||'';
         const fuel=f.properties.fuel||'';
         const output=f.properties.output||'';
         const coords=f.geometry.coordinates;
         const col=fuelColor(fuel);
         const m=L.circleMarker([coords[1],coords[0]],{radius:3,color:col,fillColor:col,fillOpacity:0.8,weight:0.5});
-        const tip=`<b>${n}</b>${fuel?' ('+fuel+')':''}${output?' '+output:''}`;
-        m.bindTooltip(tip,{sticky:true});
+        m.bindTooltip(`<b>${n}</b>${fuel?' ('+fuel+')':''}${output?' '+output:''}`,{sticky:true});
         m.addTo(ly);
       });
-      if(document.getElementById('chkPlants').checked)ly.addTo(map);
-      ly._gridType='plants';
+      if(document.getElementById('chkPlants').checked) ly.addTo(map);
       gridLayers.plants.push(ly);
-    }catch(e){}
+    }
   }
   buildSubsList();
   buildLinesList();
+}
+
+async function loadGridForArea(area){
+  const areas = area==='all' ? gridAreaFiles : [area];
+  showLoading(true);
+  await Promise.all(areas.map(a=>fetchGridData(a)));
+  buildGridFromCache(areas);
+  showLoading(false);
+}
+
+// ── インプレース切替 (再取得なし) ───────────────────────
+function toggleSubLabels(){
+  subLabelVisible=document.getElementById('chkSubLabels').checked;
+  subMarkerRefs.forEach(({marker,name,v})=>{
+    marker.unbindTooltip();
+    if(name&&v>=154&&subLabelVisible)
+      marker.bindTooltip(name,{permanent:true,direction:'right',className:'sub-label'});
+    else if(name)
+      marker.bindTooltip(name,{sticky:true});
+  });
+}
+
+function applyVoltageFilter(){
+  // Rebuild from cached data without re-fetching
+  const areas = currentArea==='all' ? gridAreaFiles : [currentArea];
+  buildGridFromCache(areas);
 }
 
 function toggleGrid(type){
@@ -441,11 +482,9 @@ function showTab(tab,btn){
 }
 
 function filterList(q){
-  const tab=currentTab;
-  const el=document.getElementById('tab-'+tab);
-  const entries=el.querySelectorAll('.entry');
+  const el=document.getElementById('tab-'+currentTab);
   const ql=q.toLowerCase();
-  entries.forEach(e=>{
+  el.querySelectorAll('.entry').forEach(e=>{
     e.style.display=e.textContent.toLowerCase().includes(ql)?'':'none';
   });
 }
@@ -475,22 +514,25 @@ function switchArea(area){
   const [lat,lon,zoom]=areaCenters[area]||areaCenters.all;
   map.setView([lat,lon],zoom);
   updatePrefSelect(area);
-  clearGridLayers();
-  loadScoreForArea(area);
+  clearAllScoreLayers();
+  scoreLayerCache={};
+  updateVisibleScoreLayers();
   loadGridForArea(area);
 }
 
 function switchPref(key){
-  if(key==='all'){
-    switchArea(currentArea);
-    return;
-  }
+  if(key==='all'){switchArea(currentArea);return;}
   const d=prefData[key];
   if(!d)return;
   map.fitBounds(d.bounds,{padding:[20,20]});
-  clearScoreLayers();
-  loadScoreForPref(key);
 }
+
+// ── viewport更新 (debounced) ─────────────────────────
+let _moveTimer=null;
+map.on('moveend',()=>{
+  clearTimeout(_moveTimer);
+  _moveTimer=setTimeout(()=>updateVisibleScoreLayers(), 150);
+});
 
 // ── 初期化 ─────────────────────────────────────────
 async function init(){
@@ -499,8 +541,8 @@ async function init(){
     const r=await fetch('prefectures.json');
     prefData=await r.json();
     updatePrefSelect('all');
-    loadScoreForArea('all');
-    await loadGridForArea('all');
+    updateVisibleScoreLayers();
+    // Grid data: defer to area selection (don't load all at init)
   }catch(e){
     console.error('Init error:',e);
   }
