@@ -370,6 +370,10 @@ async function fetchGridData(area){
 function buildGridFromCache(areas){
   clearGridLayers();
   const enabled=getEnabledVoltages();
+  // 複数リージョンにまたがる重複フィーチャーを除去するための座標セット
+  const seenSubs=new Set();
+  const seenLines=new Set();
+  const seenPlants=new Set();
 
   for(const a of areas){
     const cache=gridDataCache[a];
@@ -378,7 +382,16 @@ function buildGridFromCache(areas){
     // 送電線
     if(cache.lines){
       const ly=L.geoJSON(cache.lines,{
-        filter:f=>voltageInRange(parseKV(f.properties.voltage),enabled),
+        filter:f=>{
+          if(!voltageInRange(parseKV(f.properties.voltage),enabled)) return false;
+          const c=f.geometry&&f.geometry.coordinates;
+          if(!c||!c.length) return true;
+          const p0=Array.isArray(c[0])?c[0]:c;
+          const pN=Array.isArray(c[c.length-1])?c[c.length-1]:c;
+          const key=`${Math.round(p0[0]*1e4)},${Math.round(p0[1]*1e4)},${Math.round(pN[0]*1e4)},${Math.round(pN[1]*1e4)}`;
+          if(seenLines.has(key)) return false;
+          seenLines.add(key); return true;
+        },
         style:f=>{const v=parseKV(f.properties.voltage);
           return{color:vColor(v),weight:v>=500?4:v>=275?3:v>=154?2.5:1.5,opacity:0.7};},
         onEachFeature:(f,l)=>{
@@ -403,6 +416,9 @@ function buildGridFromCache(areas){
         else if(g.type==='Polygon'){const c=g.coordinates[0];lat=c.reduce((s,p)=>s+p[1],0)/c.length;lon=c.reduce((s,p)=>s+p[0],0)/c.length;}
         else if(g.type==='MultiPolygon'){const c=g.coordinates[0][0];lat=c.reduce((s,p)=>s+p[1],0)/c.length;lon=c.reduce((s,p)=>s+p[0],0)/c.length;}
         if(!lat||!lon) return;
+        const key=`${Math.round(lon*1e4)},${Math.round(lat*1e4)}`;
+        if(seenSubs.has(key)) return;
+        seenSubs.add(key);
         const m=L.circleMarker([lat,lon],{radius:v>=275?8:v>=154?6:v>=66?4:3,
           color:vColor(v),fillColor:vColor(v),fillOpacity:0.7,weight:1.5,pane:'substations'});
         if(n&&v>=154&&subLabelVisible) m.bindTooltip(n,{permanent:true,direction:'right',className:'sub-label'});
@@ -422,9 +438,12 @@ function buildGridFromCache(areas){
         const fuel=f.properties.fuel||'';
         const output=f.properties.output||'';
         const coords=f.geometry.coordinates;
+        const key=`${Math.round(coords[0]*1e4)},${Math.round(coords[1]*1e4)}`;
+        if(seenPlants.has(key)) return;
+        seenPlants.add(key);
         const col=fuelColor(fuel);
         const m=L.circleMarker([coords[1],coords[0]],{radius:3,color:col,fillColor:col,fillOpacity:0.8,weight:0.5});
-        m.bindTooltip(`<b>${n}</b>${fuel?' ('+fuel+')':''}${output?' '+output:''}`,{sticky:true});
+        m.bindTooltip(`<b>${n}</b>${fuel?' ('+fuel+')':''}${output?' '+output+'MW':''}`,{sticky:true});
         m.addTo(ly);
       });
       if(document.getElementById('chkPlants').checked) ly.addTo(map);
