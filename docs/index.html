@@ -180,7 +180,7 @@ function jrpToggle(id){
 // ── 初期化 ────────────────────────────────────────
 const map = L.map('map').setView([36.5, 137.0], 6);
 
-map.createPane('score'); map.getPane('score').style.zIndex = 300; map.getPane('score').style.pointerEvents = 'none'; map.getPane('score').style.opacity = '0.55';
+map.createPane('score'); map.getPane('score').style.zIndex = 300; map.getPane('score').style.pointerEvents = 'none';
 map.createPane('hazard'); map.getPane('hazard').style.zIndex = 450; map.getPane('hazard').style.pointerEvents = 'none';
 map.createPane('substations'); map.getPane('substations').style.zIndex = 500;
 
@@ -206,8 +206,7 @@ const hazardLayers = {
 
 // ── データ・状態 ──────────────────────────────────────
 let prefData = {};
-let scoreLayerCache = {};   // key -> L.imageOverlay (cached, may or may not be on map)
-let activeScoreKeys = new Set();
+let scoreTileLayer = null;
 let gridLayers = { lines: [], subs: [], plants: [] };
 let gridDataCache = {};     // area -> {lines: geojson, subs: geojson, plants: geojson}
 let subMarkerRefs = [];     // {marker, name, v, area}
@@ -260,78 +259,22 @@ function fuelColor(fuel){
 }
 function showLoading(v){document.getElementById('loading').style.display=v?'block':'none';}
 
-function boundsIntersect(b1, b2){
-  // b1, b2: [[south,west],[north,east]]
-  return !(b1[0][0]>b2[1][0] || b1[1][0]<b2[0][0] || b1[0][1]>b2[1][1] || b1[1][1]<b2[0][1]);
-}
-
-// ── スコアレイヤー (viewport lazy loading) ────────────────
-function getVisiblePrefKeys(area){
-  const vb = map.getBounds();
-  const viewBounds = [[vb.getSouth(), vb.getWest()], [vb.getNorth(), vb.getEast()]];
-  const keys = [];
-  for(const [key,d] of Object.entries(prefData)){
-    if(area!=='all' && d.grid_area!==area) continue;
-    if(boundsIntersect(d.bounds, viewBounds)) keys.push(key);
-  }
-  return keys;
-}
-
-function ensureScoreLayer(key){
-  if(scoreLayerCache[key]) return scoreLayerCache[key];
-  const d=prefData[key];
-  if(!d) return null;
-  // opacity:1 にして pane レベルで透過制御——上タイルが下タイルを完全に隠し重複を防ぐ
-  const ly=L.imageOverlay(key+'.png', d.bounds, {opacity:1.0, pane:'score'});
-  scoreLayerCache[key]=ly;
-  return ly;
-}
-
-function updateVisibleScoreLayers(){
-  if(!document.getElementById('chkScore').checked) return;
-  const visible = new Set(getVisiblePrefKeys(currentArea));
-  // Remove layers no longer visible
-  for(const key of activeScoreKeys){
-    if(!visible.has(key)){
-      const ly=scoreLayerCache[key];
-      if(ly) map.removeLayer(ly);
-      activeScoreKeys.delete(key);
-    }
-  }
-  // Add newly visible layers
-  for(const key of visible){
-    if(!activeScoreKeys.has(key)){
-      const ly=ensureScoreLayer(key);
-      if(ly){ly.addTo(map); activeScoreKeys.add(key);}
-    }
-  }
-}
-
-function clearAllScoreLayers(){
-  for(const key of activeScoreKeys){
-    const ly=scoreLayerCache[key];
-    if(ly) map.removeLayer(ly);
-  }
-  activeScoreKeys.clear();
-}
-
+// ── スコアレイヤー (XYZ tileLayer) ───────────────────────
 function toggleScoreLayer(){
   const on=document.getElementById('chkScore').checked;
-  if(on) updateVisibleScoreLayers();
-  else clearAllScoreLayers();
+  if(!scoreTileLayer) return;
+  if(on) scoreTileLayer.addTo(map);
+  else map.removeLayer(scoreTileLayer);
 }
 
 function setOpacity(val){
   scoreOpacity=val/100;
-  map.getPane('score').style.opacity = scoreOpacity;
+  if(scoreTileLayer) scoreTileLayer.setOpacity(scoreOpacity);
 }
 
 function switchScoreMode(mode){
   currentScoreMode=mode;
-  // Clear cache and reload (future: per-mode PNGs)
-  clearAllScoreLayers();
-  scoreLayerCache={};
-  updateVisibleScoreLayers();
+  // 将来: tiles/{mode}/{z}/{x}/{y}.png で切替可能
 }
 
 // ── 電力系統 (with caching & in-place toggle) ──────────────
@@ -561,9 +504,6 @@ function switchArea(area){
   const [lat,lon,zoom]=areaCenters[area]||areaCenters.all;
   map.setView([lat,lon],zoom);
   updatePrefSelect(area);
-  clearAllScoreLayers();
-  scoreLayerCache={};
-  updateVisibleScoreLayers();
   loadGridForArea(area);
 }
 
@@ -574,22 +514,19 @@ function switchPref(key){
   map.fitBounds(d.bounds,{padding:[20,20]});
 }
 
-// ── viewport更新 (debounced) ─────────────────────────
-let _moveTimer=null;
-map.on('moveend',()=>{
-  clearTimeout(_moveTimer);
-  _moveTimer=setTimeout(()=>updateVisibleScoreLayers(), 150);
-});
-
 // ── 初期化 ─────────────────────────────────────────
 async function init(){
   showLoading(true);
+  // スコアタイルレイヤー初期化
+  scoreTileLayer=L.tileLayer('tiles/{z}/{x}/{y}.png',{
+    pane:'score', opacity:scoreOpacity, maxNativeZoom:9, maxZoom:18
+  });
+  if(document.getElementById('chkScore').checked) scoreTileLayer.addTo(map);
+
   try{
     const r=await fetch('prefectures.json');
     prefData=await r.json();
     updatePrefSelect('all');
-    updateVisibleScoreLayers();
-    // Grid data: defer to area selection (don't load all at init)
   }catch(e){
     console.error('Init error:',e);
   }
