@@ -180,7 +180,7 @@ function jrpToggle(id){
 // ── 初期化 ────────────────────────────────────────
 const map = L.map('map').setView([36.5, 137.0], 6);
 
-map.createPane('score'); map.getPane('score').style.zIndex = 300; map.getPane('score').style.pointerEvents = 'none';
+map.createPane('score'); map.getPane('score').style.zIndex = 300; map.getPane('score').style.pointerEvents = 'none'; map.getPane('score').style.opacity = '0.55';
 map.createPane('hazard'); map.getPane('hazard').style.zIndex = 450; map.getPane('hazard').style.pointerEvents = 'none';
 map.createPane('substations'); map.getPane('substations').style.zIndex = 500;
 
@@ -281,13 +281,8 @@ function ensureScoreLayer(key){
   if(scoreLayerCache[key]) return scoreLayerCache[key];
   const d=prefData[key];
   if(!d) return null;
-  const ly=L.imageOverlay(key+'.png', d.bounds, {opacity:scoreOpacity, pane:'score'});
-  // PNGのboundsが隣接サブリージョンと重複しているため、重複エリアは
-  // 常に高スコア(明るい色)を表示する mix-blend-mode:lighten を適用
-  ly.on('add', function(){
-    const el = ly.getElement();
-    if(el) el.style.mixBlendMode = 'lighten';
-  });
+  // opacity:1 にして pane レベルで透過制御——上タイルが下タイルを完全に隠し重複を防ぐ
+  const ly=L.imageOverlay(key+'.png', d.bounds, {opacity:1.0, pane:'score'});
   scoreLayerCache[key]=ly;
   return ly;
 }
@@ -328,9 +323,7 @@ function toggleScoreLayer(){
 
 function setOpacity(val){
   scoreOpacity=val/100;
-  for(const [,ly] of Object.entries(scoreLayerCache)){
-    ly.setOpacity(scoreOpacity);
-  }
+  map.getPane('score').style.opacity = scoreOpacity;
 }
 
 function switchScoreMode(mode){
