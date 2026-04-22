@@ -38,12 +38,22 @@ html,body{margin:0;padding:0;height:100%;font-family:-apple-system,'Hiragino San
 .tab-btns{display:flex;gap:2px;margin-bottom:4px}
 .tab-btns button{flex:1;font-size:10px;padding:3px;border:1px solid #ccc;cursor:pointer;background:#f5f5f5;border-radius:3px}
 .tab-btns button.active{background:#006400;color:white;border-color:#006400}
+#ui-toggles{position:absolute;top:80px;left:10px;z-index:1100;display:flex;flex-direction:column;gap:4px}
+.uitbtn{width:28px;height:28px;background:rgba(255,255,255,0.92);border:1px solid #ccc;color:#333;
+  border-radius:5px;cursor:pointer;font-size:14px;display:flex;align-items:center;justify-content:center;
+  box-shadow:0 1px 5px rgba(0,0,0,.3);padding:0;line-height:1;transition:background 0.12s}
+.uitbtn:hover{background:#e8f5e8;border-color:#006400}
+.uitbtn.off{color:#bbb;border-color:#e0e0e0;background:rgba(240,240,240,0.85)}
+.panel-hdr{display:flex;justify-content:flex-end;margin-bottom:4px}
+.panel-close{background:none;border:none;font-size:13px;cursor:pointer;color:#888;padding:0 2px;line-height:1}
+.panel-close:hover{color:#c00}
 </style>
 </head>
 <body>
 <div id="map"></div>
 
 <div id="controls">
+  <div class="panel-hdr"><button class="panel-close" onclick="jrpToggle('controls')" title="非表示">✕</button></div>
   <b style="font-size:14px">全国 RE適地スコア</b>
 
   <h3>電力エリア</h3>
@@ -103,6 +113,7 @@ html,body{margin:0;padding:0;height:100%;font-family:-apple-system,'Hiragino San
 </div>
 
 <div id="legend">
+  <button class="panel-close" onclick="jrpToggle('legend')" title="非表示" style="align-self:flex-start;margin-right:4px">✕</button>
   <div class="block">
     <b>適地スコア</b>
     <div class="item"><div class="box" style="background:#006400"></div>80-100 最適</div>
@@ -130,6 +141,7 @@ html,body{margin:0;padding:0;height:100%;font-family:-apple-system,'Hiragino San
 </div>
 
 <div id="sublist">
+  <div class="panel-hdr"><button class="panel-close" onclick="jrpToggle('sublist')" title="非表示">✕</button></div>
   <div class="tab-btns">
     <button class="active" onclick="showTab('subs',this)">変電所</button>
     <button onclick="showTab('lines',this)">送電線</button>
@@ -145,9 +157,26 @@ html,body{margin:0;padding:0;height:100%;font-family:-apple-system,'Hiragino San
   <div id="tab-lines" class="list" style="display:none"></div>
 </div>
 
+<div id="ui-toggles">
+  <button class="uitbtn" id="jrp-btn-controls" onclick="jrpToggle('controls')" title="コントロール">&#9776;</button>
+  <button class="uitbtn" id="jrp-btn-legend" onclick="jrpToggle('legend')" title="凡例">&#9670;</button>
+  <button class="uitbtn" id="jrp-btn-sublist" onclick="jrpToggle('sublist')" title="リスト">&#9783;</button>
+</div>
+
 <div id="loading">読み込み中...</div>
 
 <script>
+// ── パネル表示/非表示 ───────────────────────────────
+const _jrpPanelState = {controls:true, legend:true, sublist:true};
+const _jrpBtnIds = {controls:'jrp-btn-controls', legend:'jrp-btn-legend', sublist:'jrp-btn-sublist'};
+function jrpToggle(id){
+  _jrpPanelState[id] = !_jrpPanelState[id];
+  const el = document.getElementById(id);
+  if(el) el.style.display = _jrpPanelState[id] ? '' : 'none';
+  const btn = document.getElementById(_jrpBtnIds[id]);
+  if(btn) btn.classList.toggle('off', !_jrpPanelState[id]);
+}
+
 // ── 初期化 ────────────────────────────────────────
 const map = L.map('map').setView([36.5, 137.0], 6);
 
