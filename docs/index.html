@@ -282,6 +282,12 @@ function ensureScoreLayer(key){
   const d=prefData[key];
   if(!d) return null;
   const ly=L.imageOverlay(key+'.png', d.bounds, {opacity:scoreOpacity, pane:'score'});
+  // PNGのboundsが隣接サブリージョンと重複しているため、重複エリアは
+  // 常に高スコア(明るい色)を表示する mix-blend-mode:lighten を適用
+  ly.on('add', function(){
+    const el = ly.getElement();
+    if(el) el.style.mixBlendMode = 'lighten';
+  });
   scoreLayerCache[key]=ly;
   return ly;
 }
