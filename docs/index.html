@@ -276,7 +276,7 @@ function switchScoreMode(mode){
   currentScoreMode=mode;
   if(scoreTileLayer) map.removeLayer(scoreTileLayer);
   scoreTileLayer=L.tileLayer('tiles/'+mode+'/{z}/{x}/{y}.png',{
-    pane:'score', opacity:scoreOpacity, maxNativeZoom:9, maxZoom:18
+    pane:'score', opacity:scoreOpacity, maxNativeZoom:10, maxZoom:18
   });
   if(document.getElementById('chkScore').checked) scoreTileLayer.addTo(map);
 }
@@ -523,7 +523,7 @@ async function init(){
   showLoading(true);
   // スコアタイルレイヤー初期化
   scoreTileLayer=L.tileLayer('tiles/total/{z}/{x}/{y}.png',{
-    pane:'score', opacity:scoreOpacity, maxNativeZoom:9, maxZoom:18
+    pane:'score', opacity:scoreOpacity, maxNativeZoom:10, maxZoom:18
   });
   if(document.getElementById('chkScore').checked) scoreTileLayer.addTo(map);
 
