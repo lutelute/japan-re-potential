@@ -3,6 +3,8 @@
 全国47都道府県の再エネポテンシャル適地評価GISツール。
 [kanto-re-potential](https://github.com/lutelute/kanto-re-potential) を全日本に拡張。
 
+**GitHub Pages**: https://lutelute.github.io/japan-re-potential/
+
 ## プロジェクト構成
 
 ```

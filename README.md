@@ -2,6 +2,8 @@
 
 全国47都道府県の再生可能エネルギーポテンシャル適地評価ツール (GIS-MCDA/AHP)
 
+**[スコアマップを見る →](https://lutelute.github.io/japan-re-potential/)**
+
 [kanto-re-potential](https://github.com/lutelute/kanto-re-potential) の全日本拡張版。
 
 ## 概要
