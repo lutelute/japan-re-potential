@@ -274,6 +274,12 @@ function setOpacity(val){
 
 function switchScoreMode(mode){
   currentScoreMode=mode;
+  const wasOn=document.getElementById('chkScore').checked;
+  if(scoreTileLayer){ map.removeLayer(scoreTileLayer); scoreTileLayer=null; }
+  scoreTileLayer=L.tileLayer('tiles/'+mode+'/{z}/{x}/{y}.png',{
+    pane:'score', opacity:scoreOpacity, maxNativeZoom:9, maxZoom:18
+  });
+  if(wasOn) scoreTileLayer.addTo(map);
 }
 
 // ── 電力系統 (with caching & in-place toggle) ──────────────
@@ -517,7 +523,7 @@ function switchPref(key){
 async function init(){
   showLoading(true);
   // スコアタイルレイヤー初期化
-  scoreTileLayer=L.tileLayer('tiles/{z}/{x}/{y}.png',{
+  scoreTileLayer=L.tileLayer('tiles/total/{z}/{x}/{y}.png',{
     pane:'score', opacity:scoreOpacity, maxNativeZoom:9, maxZoom:18
   });
   if(document.getElementById('chkScore').checked) scoreTileLayer.addTo(map);

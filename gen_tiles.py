@@ -22,7 +22,7 @@ WORK  = Path(__file__).parent / "tmp_geo"
 TILES = DOCS / "tiles"
 PREFS_JSON = DOCS / "prefectures.json"
 
-Z_MIN, Z_MAX = 5, 10    # 拡大しても粗くならないよう z10 まで生成
+Z_MIN, Z_MAX = 5, 9
 
 # 全国 bounds (都道府県 bounds の union)
 JAPAN = dict(south=24.0453, west=126.0, north=45.5576, east=146.0)
