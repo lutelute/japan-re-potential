@@ -13,7 +13,7 @@ import sys
 sys.path.insert(0, "src")
 from config import PREFECTURES
 
-out_dir = Path("docs_alljapan")
+out_dir = Path("docs")
 out_dir.mkdir(exist_ok=True)
 
 bounds_data = {}

@@ -83,3 +83,21 @@ ls -la ~/projects/kanto-re-potential/logs/
 - 全47都道府県(北海道14分割で60ユニット)を順次処理
 - タイル生成はスキップ (サーバーでは不要、Mac側で後から実行)
 - 推定所要時間: 12-16時間
+
+## スコアPNG・タイル更新手順 (計算完了後)
+
+```bash
+# サーバー側: スコアPNG生成 (output/ → docs/*.png + docs/prefectures.json)
+cd ~/projects/kanto-re-potential
+python3 gen_score_pngs.py
+git add docs/*.png docs/prefectures.json
+git commit -m "Update score PNGs"
+git push
+
+# Mac側: タイル生成 (docs/*.png → docs/tiles/)
+git pull
+python3 gen_tiles.py
+git add docs/tiles/
+git commit -m "Regen tiles"
+git push
+```
