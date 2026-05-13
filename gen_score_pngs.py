@@ -37,7 +37,7 @@ for key, cfg in PREFECTURES.items():
                 "grid_area": cfg["grid_area"],
             }
             h, w = ds.height, ds.width
-            max_px = 2000
+            max_px = 5000  # z12タイル生成に十分 (~31m/px@35°N)
             if w > max_px:
                 scale = max_px / w
                 new_w = max_px

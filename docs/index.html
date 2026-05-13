@@ -212,8 +212,10 @@ let gridDataCache = {};     // area -> {lines: geojson, subs: geojson, plants: g
 let subMarkerRefs = [];     // {marker, name, v, area}
 let subLabelVisible = true;
 let currentArea = 'all';
+let currentPrefKey = 'all';  // 'all' or pref key (e.g. 'fukui')
 let currentScoreMode = 'total';
 let scoreOpacity = 0.55;
+const EMPTY_TILE = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
 let subsData = [];
 let linesListData = [];
 let currentTab = 'subs';
@@ -260,6 +262,27 @@ function fuelColor(fuel){
 function showLoading(v){document.getElementById('loading').style.display=v?'block':'none';}
 
 // ── スコアレイヤー (XYZ tileLayer) ───────────────────────
+// 県選択時: {pref}/tiles_total/{z}/{x}/{y}.png (z5-12, ~31m/px)
+// 全国/他モード: tiles/{mode}/{z}/{x}/{y}.png   (z5-9)
+function getTileUrl(pref, mode){
+  if(pref!=='all' && mode==='total') return pref+'/tiles_total/{z}/{x}/{y}.png';
+  return 'tiles/'+mode+'/{z}/{x}/{y}.png';
+}
+function getMaxNativeZoom(pref, mode){
+  return (pref!=='all' && mode==='total') ? 12 : 9;
+}
+
+function loadScoreTile(){
+  const wasOn=document.getElementById('chkScore').checked;
+  if(scoreTileLayer){ map.removeLayer(scoreTileLayer); scoreTileLayer=null; }
+  scoreTileLayer=L.tileLayer(getTileUrl(currentPrefKey, currentScoreMode),{
+    pane:'score', opacity:scoreOpacity,
+    maxNativeZoom:getMaxNativeZoom(currentPrefKey, currentScoreMode),
+    maxZoom:18, errorTileUrl:EMPTY_TILE
+  });
+  if(wasOn) scoreTileLayer.addTo(map);
+}
+
 function toggleScoreLayer(){
   const on=document.getElementById('chkScore').checked;
   if(!scoreTileLayer) return;
@@ -274,12 +297,7 @@ function setOpacity(val){
 
 function switchScoreMode(mode){
   currentScoreMode=mode;
-  const wasOn=document.getElementById('chkScore').checked;
-  if(scoreTileLayer){ map.removeLayer(scoreTileLayer); scoreTileLayer=null; }
-  scoreTileLayer=L.tileLayer('tiles/'+mode+'/{z}/{x}/{y}.png',{
-    pane:'score', opacity:scoreOpacity, maxNativeZoom:9, maxZoom:18
-  });
-  if(wasOn) scoreTileLayer.addTo(map);
+  loadScoreTile();
 }
 
 // ── 電力系統 (with caching & in-place toggle) ──────────────
@@ -506,27 +524,32 @@ function updatePrefSelect(area){
 
 function switchArea(area){
   currentArea=area;
+  currentPrefKey='all';
   const [lat,lon,zoom]=areaCenters[area]||areaCenters.all;
   map.setView([lat,lon],zoom);
   updatePrefSelect(area);
   loadGridForArea(area);
+  loadScoreTile();
 }
 
 function switchPref(key){
-  if(key==='all'){switchArea(currentArea);return;}
-  const d=prefData[key];
-  if(!d)return;
-  map.fitBounds(d.bounds,{padding:[20,20]});
+  currentPrefKey=key;
+  if(key==='all'){
+    const [lat,lon,zoom]=areaCenters[currentArea]||areaCenters.all;
+    map.setView([lat,lon],zoom);
+  } else {
+    const d=prefData[key];
+    if(!d)return;
+    map.fitBounds(d.bounds,{padding:[20,20]});
+  }
+  loadScoreTile();
 }
 
 // ── 初期化 ─────────────────────────────────────────
 async function init(){
   showLoading(true);
   // スコアタイルレイヤー初期化
-  scoreTileLayer=L.tileLayer('tiles/total/{z}/{x}/{y}.png',{
-    pane:'score', opacity:scoreOpacity, maxNativeZoom:9, maxZoom:18
-  });
-  if(document.getElementById('chkScore').checked) scoreTileLayer.addTo(map);
+  loadScoreTile();
 
   try{
     const r=await fetch('prefectures.json');
