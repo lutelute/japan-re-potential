@@ -21,7 +21,7 @@ html,body{margin:0;padding:0;height:100%;font-family:-apple-system,'Hiragino San
 .layer-row input[type=range]{width:60px;height:14px}
 .layer-row .opacity-val{font-size:9px;color:#888;width:28px;text-align:right}
 .color-dot{width:10px;height:10px;border-radius:50%;flex-shrink:0}
-#legend-bar{position:absolute;bottom:10px;left:50%;transform:translateX(-50%);z-index:1000;
+#legend-bar{position:absolute;bottom:26px;left:50%;transform:translateX(-50%);z-index:1000;
   background:rgba(255,255,255,0.95);padding:8px 20px;border-radius:8px;
   box-shadow:0 2px 10px rgba(0,0,0,.35);display:flex;gap:16px;font-size:11px;align-items:center}
 #legend-bar .item{display:flex;align-items:center;gap:4px}
@@ -105,6 +105,15 @@ select{font-size:11px;padding:2px 4px;width:100%;border-radius:4px;border:1px so
 <script>
 const map = L.map('map').setView([36.5, 137.0], 6);
 
+// ── 出典表示（詳しくは NOTICE） ─────────────────────────
+const ATTR_OSM='&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors';
+const ATTR_CARTO='&copy; <a href="https://carto.com/attributions" target="_blank" rel="noopener">CARTO</a>';
+const ATTR_GOOGLE='&copy; Google';
+const ATTR_GSI='<a href="https://maps.gsi.go.jp/development/ichiran.html" target="_blank" rel="noopener">地理院タイル</a>';
+const ATTR_HAZARD='<a href="https://disaportal.gsi.go.jp/hazardmapportal/hazardmap/copyright/opendata.html" target="_blank" rel="noopener">ハザードマップポータルサイト</a>';
+map.attributionControl.addAttribution(ATTR_OSM);
+map.attributionControl.addAttribution('系統・スコア: <a href="https://github.com/lutelute/All-Japan-Grid" target="_blank" rel="noopener">All-Japan-Grid</a> (ODbL)・国土数値情報（国土交通省）・SRTM を加工して作成（<a href="https://github.com/lutelute/japan-re-potential/blob/main/NOTICE" target="_blank" rel="noopener">出典一覧</a>）');
+
 // Panes
 map.createPane('score0'); map.getPane('score0').style.zIndex = 300;
 map.createPane('score1'); map.getPane('score1').style.zIndex = 310;
@@ -119,21 +128,21 @@ map.createPane('substations'); map.getPane('substations').style.zIndex=500;
 
 // Basemaps
 const bases = {
-  'CartoDB Light': L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',{attribution:'CartoDB',maxZoom:19}),
-  'CartoDB Dark': L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',{attribution:'CartoDB',maxZoom:19}),
-  'OSM': L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{attribution:'OSM',maxZoom:19}),
-  'Google 衛星': L.tileLayer('https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}',{attribution:'Google',maxZoom:20}),
-  '国土地理院': L.tileLayer('https://cyberjapandata.gsi.go.jp/xyz/std/{z}/{x}/{y}.png',{attribution:'GSI',maxZoom:18}),
-  '航空写真': L.tileLayer('https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/{z}/{x}/{y}.jpg',{attribution:'GSI',maxZoom:18}),
+  'CartoDB Light': L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',{attribution:ATTR_CARTO,maxZoom:19}),
+  'CartoDB Dark': L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',{attribution:ATTR_CARTO,maxZoom:19}),
+  'OSM': L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{attribution:ATTR_OSM,maxZoom:19}),
+  'Google 衛星': L.tileLayer('https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}',{attribution:ATTR_GOOGLE,maxZoom:20}),
+  '国土地理院': L.tileLayer('https://cyberjapandata.gsi.go.jp/xyz/std/{z}/{x}/{y}.png',{attribution:ATTR_GSI,maxZoom:18}),
+  '航空写真': L.tileLayer('https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/{z}/{x}/{y}.jpg',{attribution:ATTR_GSI,maxZoom:18}),
 };
 bases['CartoDB Light'].addTo(map);
 L.control.layers(bases,null,{position:'topright'}).addTo(map);
 
 // Hazard layers
 const hazardLayers={
-  flood:L.tileLayer('https://disaportaldata.gsi.go.jp/raster/01_flood_l2_shinsuishin_data/{z}/{x}/{y}.png',{maxNativeZoom:17,maxZoom:20,opacity:0.5,pane:'hazard'}),
-  sediment:L.tileLayer('https://disaportaldata.gsi.go.jp/raster/05_dosekiryukeikaikuiki/{z}/{x}/{y}.png',{maxNativeZoom:17,maxZoom:20,opacity:0.5,pane:'hazard'}),
-  tsunami:L.tileLayer('https://disaportaldata.gsi.go.jp/raster/04_tsunami_newlegend_data/{z}/{x}/{y}.png',{maxNativeZoom:17,maxZoom:20,opacity:0.5,pane:'hazard'}),
+  flood:L.tileLayer('https://disaportaldata.gsi.go.jp/raster/01_flood_l2_shinsuishin_data/{z}/{x}/{y}.png',{attribution:ATTR_HAZARD,maxNativeZoom:17,maxZoom:20,opacity:0.5,pane:'hazard'}),
+  sediment:L.tileLayer('https://disaportaldata.gsi.go.jp/raster/05_dosekiryukeikaikuiki/{z}/{x}/{y}.png',{attribution:ATTR_HAZARD,maxNativeZoom:17,maxZoom:20,opacity:0.5,pane:'hazard'}),
+  tsunami:L.tileLayer('https://disaportaldata.gsi.go.jp/raster/04_tsunami_newlegend_data/{z}/{x}/{y}.png',{attribution:ATTR_HAZARD,maxNativeZoom:17,maxZoom:20,opacity:0.5,pane:'hazard'}),
 };
 
 // Score layer definitions
