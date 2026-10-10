@@ -71,7 +71,11 @@ several third-party sources. Attributions and licenses:
      for distribution substations in Tochigi, transcribed from
      東京電力パワーグリッド「空容量マッピング」(as of 2025-01-07). These values are
      NOT licensed under MIT or ODbL by this repository; all rights remain with
-     TEPCO Power Grid, Inc. Their redistribution terms have not been confirmed.
+     TEPCO Power Grid, Inc. The TEPCO group website terms
+     (https://www.tepco.co.jp/legal/) prohibit using its content beyond private
+     use, or reproducing it as-is or modified, without prior written consent.
+     No such consent has been confirmed for this repository, so
+     redistribution of these values is pending the owner's confirmation.
 
 ---
 
