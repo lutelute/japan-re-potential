@@ -61,3 +61,14 @@ python3 src/batch_all_japan.py --resolution 5 --resume --workers 4
 - Al Garni & Awasthi (2017), Applied Energy - GIS-AHP solar site selection
 - Doorga et al. (2019), Renewable Energy - Multi-criteria GIS solar farm modelling
 - Shorabeh et al. (2019), Renewable Energy - Risk-based MCDA for solar in Iran
+
+## ライセンスと出典 / License & Attribution
+
+- コード / Code: MIT（[LICENSE](LICENSE)）
+- 送電網データ / Grid data（`docs/grid/`）: [All-Japan-Grid](https://github.com/lutelute/All-Japan-Grid) 経由の OpenStreetMap 派生データ。© [OpenStreetMap](https://www.openstreetmap.org/copyright) contributors、[ODbL 1.0](https://opendatacommons.org/licenses/odbl/)
+- 適地スコア / Score tiles（`docs/tiles/`, `docs/*.png`）: OpenStreetMap（© OpenStreetMap contributors）・国土数値情報・SRTM をもとに作成
+- 国土数値情報: 「国土数値情報（土地利用細分メッシュ（ラスタ版）データ）」「国土数値情報（行政区域データ）」（国土交通省, https://nlftp.mlit.go.jp/ksj/）をもとに作成。元データは再配布しない
+- 標高・傾斜 / Elevation: SRTM（NASA / USGS、パブリックドメイン。[Terrain Tiles on AWS](https://registry.opendata.aws/terrain-tiles/) 経由）
+- 背景地図 / Basemaps: CARTO・OpenStreetMap・[地理院タイル](https://maps.gsi.go.jp/development/ichiran.html)・Google、ハザード: [ハザードマップポータルサイト](https://disaportal.gsi.go.jp/hazardmapportal/hazardmap/copyright/opendata.html)（いずれも表示時に読み込むだけで再配布しない）
+- `docs_kanto_legacy/index.html` には東京電力パワーグリッドの空容量の値が含まれる（再配布条件は未確認）
+- 出典の詳細 / Full notices: [NOTICE](NOTICE)
